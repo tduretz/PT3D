@@ -2,9 +2,9 @@ using Revise, Printf, Plots
 import Statistics: mean
 import LinearAlgebra: norm
 
-function main()
-Lx,  Ly,  Lz  = 1.0, 1.0, 1.0 # Lx, Ly, Lz = 1?
-ncx, ncy, ncz = 51,   51,  51
+function main( n )
+Lx,  Ly,  Lz  =  1.0,  1.0,  1.0 
+ncx, ncy, ncz = n*32, n*32, n*32
 BCtype = :PureShear_xz
 ε      = 1
 r      = 1e-1
@@ -52,14 +52,13 @@ InterpV2C( ηc, ηv )
 InterpV2xyz( ηxy, ηxz, ηyz, ηv )
 
 niter  = 1e5
-nout   = 1000
+nout   = 500
 Reopt  = 1*pi
-cfl    = 0.5
+cfl    = 1.5
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 tol    = 1e-10
 Δτ     = ρnum*Δy^2 /maximum(ηc) /6.1 * cfl
 ΚΔτ    = cfl * maximum(ηc) * Δx / Lx 
-
 @printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
 
 for iter=1:niter
@@ -79,7 +78,9 @@ for iter=1:niter
         @printf("Fy = %2.4e\n", nFy) 
         @printf("Fz = %2.4e\n", nFz) 
         @printf("Fp = %2.4e\n", nFp) 
-        max(nFx, nFy, nFz, nFp)<tol && break
+        max(nFx, nFy, nFz, nFp)<tol && break # short circuiting operations
+        isnan(nFx) && error("NaN emergency!") 
+        nFx>1e8    && error("Blow up!") 
     end
 end
 # p = heatmap(Fz[:, (ncy+1)÷2,:]')
@@ -92,7 +93,7 @@ end
 
 function InitialCondition( Vx, Vy, Vz, ηv, ηc, ε, xv, yv, zv, xce, yce, zce, r )
 
-    for k = 1:length(zce)
+    @inbounds for k = 1:length(zce)
         for j = 1:length(yce)
             for i = 1:length(xce)
                 if (i<=size(Vx,1)) Vx[i,j,k] = -ε*xv[i] end
@@ -129,7 +130,7 @@ end
 end
 
 function InterpV2C( ηc, ηv )
-    for k = 1:size(ηc,3)
+    @inbounds for k = 1:size(ηc,3)
         for j = 1:size(ηc,2)
             for i = 1:size(ηc,1)
                 ηc[i,j,k]  = 1.0/8.0*( ηv[i,  j,  k] + ηv[i+1,j,k  ] + ηv[i,j+1,k  ] + ηv[i,  j,k+1  ] )
@@ -141,7 +142,7 @@ function InterpV2C( ηc, ηv )
 end
 
 function InterpV2xyz( ηxy, ηxz, ηyz, ηv )
-    for k = 1:size(ηv,3)
+    @inbounds for k = 1:size(ηv,3)
         for j = 1:size(ηv,2)
             for i = 1:size(ηv,1)
                 if (k<=size(ηxy,3)) ηxy[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i,j,k+1]) end
@@ -157,21 +158,21 @@ function ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, V
 
     _Δx, _Δy, _Δz = 1.0/Δx, 1.0/Δy, 1.0/Δz
 
-    for k = 1:size(εxx,3)
+    @inbounds for k = 1:size(εxx,3)
         for j = 1:size(εxx,2)
             for i = 1:size(εxx,1)
                 dVxΔx      = (Vx[i+1,j+1,k+1] - Vx[i,j+1,k+1]) * _Δx
                 dVyΔy      = (Vy[i+1,j+1,k+1] - Vy[i+1,j,k+1]) * _Δy
                 dVzΔz      = (Vz[i+1,j+1,k+1] - Vz[i+1,j+1,k]) * _Δz
                 ∇V[i,j,k]  = dVxΔx + dVyΔy + dVzΔz
-                εxx[i,j,k] = dVxΔx# + 1//3 * ∇V[i,j,k]
-                εyy[i,j,k] = dVyΔy# + 1//3 * ∇V[i,j,k]
-                εzz[i,j,k] = dVzΔz# + 1//3 * ∇V[i,j,k]
+                εxx[i,j,k] = dVxΔx - 1//3 * ∇V[i,j,k]
+                εyy[i,j,k] = dVyΔy - 1//3 * ∇V[i,j,k]
+                εzz[i,j,k] = dVzΔz - 1//3 * ∇V[i,j,k]
             end
         end
     end
 
-    for k = 1:size(εxx,3)+1
+    @inbounds for k = 1:size(εxx,3)+1
         for j = 1:size(εxx,2)+1
             for i = 1:size(εxx,1)+1
                 if (i<=size(εxy,1)) && (j<=size(εxy,2)) && (k<=size(εxy,3))
@@ -197,7 +198,7 @@ end
 
 function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz )
 
-    for k = 1:size(εxx,3)
+    @inbounds for k = 1:size(εxx,3)
         for j = 1:size(εxx,2)
             for i = 1:size(εxx,1)
                 τxx[i+1,j+1,k+1] = 2*ηc[i,j,k]*εxx[i,j,k]
@@ -207,7 +208,7 @@ function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, ε
         end
     end
 
-    for k = 1:size(εxx,3)+1
+    @inbounds for k = 1:size(εxx,3)+1
         for j = 1:size(εxx,2)+1
             for i = 1:size(εxx,1)+1
                 if (i<=size(εxy,1)) && (j<=size(εxy,2)) && (k<=size(εxy,3))
@@ -229,7 +230,7 @@ function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P
 
     _Δx, _Δy, _Δz = 1.0/Δx, 1.0/Δy, 1.0/Δz
 
-    for k = 1:size(P,3)-1
+    @inbounds for k = 1:size(P,3)-1
         for j = 1:size(P,2)-1
             for i = 1:size(P,1)-1
                 if (i<=size(Fx,1)) && (j<=size(Fx,2)) && (k<=size(Fx,3))
@@ -267,7 +268,7 @@ end
 
 function UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
 
-    for k = 1:ncz+1
+    @inbounds for k = 1:ncz+1
         for j = 1:ncy+1
             for i = 1:ncx+1
 
@@ -291,7 +292,7 @@ end
 
 function UpdateVP( dVxdτ, dVydτ, dVzdτ, dPdτ, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
 
-    for k = 1:ncz+1
+    @inbounds for k = 1:ncz+1
         for j = 1:ncy+1
             for i = 1:ncx+1
 
@@ -317,6 +318,7 @@ function UpdateVP( dVxdτ, dVydτ, dVzdτ, dPdτ, Vx, Vy, Vz, P, ρnum, Δτ, Κ
 
 end
 
-main()
+@time main( 1 )
+# @time main( 2 )
 
 

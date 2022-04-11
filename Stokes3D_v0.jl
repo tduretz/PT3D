@@ -1,4 +1,4 @@
-using Revise, Printf, Plots
+using Revise, Printf, Plots, MAT
 import Statistics: mean
 import LinearAlgebra: norm
 
@@ -86,6 +86,14 @@ end
 # p = heatmap(Fz[:, (ncy+1)÷2,:]')
 p = heatmap(τxy[:, (size(τxy,2))÷2, :]')
 display(p)
+
+file = matopen( string(@__DIR__,"/Stokes3D.mat"), "w")
+write(file, "res_fact", n)
+write(file, "P", P)
+write(file, "Vx", Vx)
+write(file, "Vy", Vy)
+write(file, "Vz", Vz)
+close(file)
 
 #-----------
 return nothing

@@ -1,19 +1,61 @@
-using Revise, Printf, Plots
+using Revise, Printf, Plots, SpecialFunctions
 import Statistics: mean
 import LinearAlgebra: norm
 
 function main( n )
-Lx,  Ly,  Lz  =  1.0,  1.0,  1.0 
-ncx, ncy, ncz = n*32, n*32, n*32
+nt            = 100
+Lx,  Ly,  Lz  =  1.0e-2,  (3.0/32)*1e-2,  1.0e-2 
+ncx, ncy, ncz = n*32, 3, n*32
 BCtype = :PureShear_xz
-ε      = 1
-r      = 1e-1
+ε_BG   = 0.0
+∇V_BG  = 1.0e-14
+r      = 1e-3
+β      = 1.0e-10
+ρr     = 3000
+Pini   = 4e9
+Pr     = Pini
+ηr     = 1e20
+Δt     = 1e11
+dPr    = 1e8
+Pt     = 3.5e9
+dρinc  = 300.0
 #-----------
-P   = zeros(ncx+2, ncy+2, ncz+2)
+Pmin   = 2e9
+Pmax   = Pini 
+P_1d   = LinRange(Pmin,Pmax,200)
+ρr_1d  = ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
+ρ_1d   = ρr_1d .*exp.(β.*(P_1d.-Pr))
+#-----------
+Lc = Lx
+tc = ηr*β
+εc = 1.0/tc
+σc = Pini
+ρc = σc*tc^2/Lc^2
+μc = σc*tc
+Vc = Lc/tc
+#-----------
+Lx,  Ly,  Lz = Lx/Lc,  Ly/Lc,  Lz/Lc
+ε_BG, ∇V_BG  = ε_BG/εc, ∇V_BG/εc 
+r      = r/Lc
+β      = β/(1.0/σc)
+ρr     = ρr/ρc
+Pr     = Pr/σc
+Pini   = Pini/σc
+ηr     = ηr/μc
+Δt     = Δt/tc
+dPr    = dPr/σc
+Pt     = 3.5e9/σc
+dρinc  = 300.0/ρc
+#-----------
+P0  = zeros(ncx+2, ncy+2, ncz+2)
+P   = Pini.*ones(ncx+2, ncy+2, ncz+2)
+dρ  = zeros(ncx+0, ncy+0, ncz+0)
 Vx  = zeros(ncx+1, ncy+2, ncz+2)
 Vy  = zeros(ncx+2, ncy+1, ncz+2)
 Vz  = zeros(ncx+2, ncy+2, ncz+1)
 ηc  = zeros(ncx+0, ncy+0, ncz+0)
+ρ0  = zeros(ncx+0, ncy+0, ncz+0)
+ρ   = zeros(ncx+0, ncy+0, ncz+0)
 ηv  = zeros(ncx+1, ncy+1, ncz+1)
 τxx = zeros(ncx+2, ncy+2, ncz+2)
 τyy = zeros(ncx+2, ncy+2, ncz+2)
@@ -47,61 +89,79 @@ xce = LinRange(-Lx/2-Δx/2, Lx/2+Δx/2, ncx+2)
 yce = LinRange(-Ly/2-Δy/2, Ly/2+Δy/2, ncy+2)
 zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 
-InitialCondition( Vx, Vy, Vz, ηv, ηc, ε, xv, yv, zv, xce, yce, zce, r )
+InitialCondition( Vx, Vy, Vz, ηv, ηc, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc )
+UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
 InterpV2C( ηc, ηv )
 InterpV2xyz( ηxy, ηxz, ηyz, ηv )
 
 niter  = 1e5
 nout   = 500
-Reopt  = 1*pi
-cfl    = 1.5
+Reopt  = 10*pi
+cfl    = 0.5
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 tol    = 1e-10
 Δτ     = ρnum*Δy^2 /maximum(ηc) /6.1 * cfl
-ΚΔτ    = cfl * maximum(ηc) * Δx / Lx 
+ΚΔτ    = cfl * maximum(ηc) * Δx / Lx  *1         # Δt expected inside
 @printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
-
-for iter=1:niter
-    SetBoundaries( Vx, Vy, Vz )
-    ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
-    ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz )
-    ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, Δx, Δy, Δz )
-    UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
-    UpdateVP( dVxdτ, dVydτ, dVzdτ, Fp, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
-    if mod(iter,nout) == 0 || iter==1
-        nFx = norm(Fx)/sqrt(length(Fx))
-        nFy = norm(Fy)/sqrt(length(Fy))
-        nFz = norm(Fz)/sqrt(length(Fz))
-        nFp = norm(Fp)/sqrt(length(Fp))
-        @printf("Iter. %05d\n", iter) 
-        @printf("Fx = %2.4e\n", nFx) 
-        @printf("Fy = %2.4e\n", nFy) 
-        @printf("Fz = %2.4e\n", nFz) 
-        @printf("Fp = %2.4e\n", nFp) 
-        max(nFx, nFy, nFz, nFp)<tol && break # short circuiting operations
-        isnan(nFx) && error("NaN emergency!") 
-        nFx>1e8    && error("Blow up!") 
+##########
+for it=1:nt
+    ###
+    P0 .= P
+    ρ0 .= ρ
+    ###
+    for iter=1:niter
+        SetBoundaries( Vx, Vy, Vz, P )
+        UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
+        ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
+        ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz )
+        ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
+        UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
+        UpdateVP( dVxdτ, dVydτ, dVzdτ, Fp, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
+        if mod(iter,nout) == 0 || iter==1
+            nFx = norm(Fx)/sqrt(length(Fx))
+            nFy = norm(Fy)/sqrt(length(Fy))
+            nFz = norm(Fz)/sqrt(length(Fz))
+            nFp = norm(Fp)/sqrt(length(Fp))
+            @printf("Iter. %05d\n", iter) 
+            @printf("Fx = %2.4e\n", nFx) 
+            @printf("Fy = %2.4e\n", nFy) 
+            @printf("Fz = %2.4e\n", nFz) 
+            @printf("Fp = %2.4e\n", nFp) 
+            max(nFx, nFy, nFz, nFp)<tol && break # short circuiting operations
+            isnan(nFx) && error("NaN emergency!") 
+            nFx>1e8    && error("Blow up!") 
+        end
     end
-end
-# p = heatmap(Fz[:, (ncy+1)÷2,:]')
-p = heatmap(τxy[:, (size(τxy,2))÷2, :]')
-display(p)
+    ##########
+    @printf("τxx: min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc)
+    @printf("τyy: min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc)
+    @printf("τzz: min = %2.4e --- max = %2.4e\n", minimum(τzz[2:end-1,2:end-1,2:end-1])*σc, maximum(τzz[2:end-1,2:end-1,2:end-1])*σc)
+    @printf("P0 : min = %2.4e --- max = %2.4e\n", minimum( P0[2:end-1,2:end-1,2:end-1])*σc, maximum( P0[2:end-1,2:end-1,2:end-1])*σc)
+    @printf("P  : min = %2.4e --- max = %2.4e\n", minimum(  P[2:end-1,2:end-1,2:end-1])*σc, maximum(  P[2:end-1,2:end-1,2:end-1])*σc)
+    @printf("ρ0 : min = %2.4e --- max = %2.4e\n", minimum( ρ0[2:end-1,2:end-1,2:end-1])*ρc, maximum( ρ0[2:end-1,2:end-1,2:end-1])*ρc)
+    @printf("ρ  : min = %2.4e --- max = %2.4e\n", minimum(  ρ[2:end-1,2:end-1,2:end-1])*ρc, maximum(  ρ[2:end-1,2:end-1,2:end-1])*ρc)
 
+##########
+Pin = P[2:end-1,2:end-1,2:end-1]
+# p = heatmap(Vz[:, (ncy+1)÷2,:]'.*Vc)
+# p1 = heatmap(dρ[:, (size(dρ,2))÷2, :]'.*ρc)
+p1  = heatmap(Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9)
+p2  = plot(P_1d, ρ_1d,legend=false)
+p2  = scatter!(Pin[:].*σc, ρ[:].*ρc)
+display(plot(p1,p2))
+end
 #-----------
 return nothing
 end
 
-function InitialCondition( Vx, Vy, Vz, ηv, ηc, ε, xv, yv, zv, xce, yce, zce, r )
+function UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
 
-    Threads.@threads for k = 1:length(zce)
-        @inbounds for j = 1:length(yce)
-            for i = 1:length(xce)
-                if (i<=size(Vx,1)) Vx[i,j,k] = -ε*xv[i] end
-                if (k<=size(Vz,3)) Vz[i,j,k] =  ε*zv[k] end
-                if (i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3)) 
-                    ηv[i,j,k] = 1.0 
-                    # if ( abs(zv[k]) < 0.2) ηv[i,j,k] = 1.1 end  
-                    if ( (xv[i]*xv[i] + yv[j]*yv[j] + zv[k]*zv[k]) < r*r )  ηv[i,j,k] = 2.0 end  
+    Threads.@threads for k = 1:size(P,3)
+        @inbounds for j = 1:size(P,2)
+            for i = 1:size(P,1)
+                if (i<=size(ρ,1) && j<=size(ρ,2) && k<=size(ρ,3))
+                    ρr1      = ρr  - dρ[i,j,k]*1//2 * erfc( (P[i+1,j+1,k+1]-Pt)/dPr ) 
+                    ρ[i,j,k] = ρr1 * exp( β.*(P[i+1,j+1,k+1] - Pr) )
                 end
             end
         end
@@ -109,7 +169,28 @@ function InitialCondition( Vx, Vy, Vz, ηv, ηc, ε, xv, yv, zv, xce, yce, zce, 
     return nothing
 end
 
-@views function SetBoundaries( Vx, Vy, Vz )
+function InitialCondition( Vx, Vy, Vz, ηv, ηc, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc )
+
+    Threads.@threads for k = 1:length(zce)
+        @inbounds for j = 1:length(yce)
+            for i = 1:length(xce)
+                if (i<=size(Vx,1)) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
+                if (j<=size(Vy,2)) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
+                if (k<=size(Vz,3)) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
+                if (i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3)) 
+                    ηv[i,j,k] = ηr 
+                    if ( (xv[i]*xv[i] + zv[k]*zv[k]) < r*r )  ηv[i,j,k] = ηr/5.0 end  
+                end
+                if (i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)) 
+                    if ( (xce[i+1]*xce[i+1] + zce[k+1]*zce[k+1]) < r*r )  dρ[i,j,k] = dρinc end  
+                end
+            end
+        end
+    end
+    return nothing
+end
+
+@views function SetBoundaries( Vx, Vy, Vz, P )
 
     # West / East
     Vy[  1,:,:] .= Vy[  2,:,:]
@@ -126,6 +207,13 @@ end
     Vy[:,:,end] .= Vy[:,:,end-1]
     Vx[:,:,  1] .= Vx[:,:,  2]
     Vx[:,:,end] .= Vx[:,:,end-1]
+    # Pressure
+    # P[1,2:end-1,2:end-1]    .= P[2,2:end-1,2:end-1] 
+    # P[end,2:end-1,2:end-1]  .= P[end-1,2:end-1,2:end-1]
+    # P[2:end-1,1,2:end-1]    .= P[2:end-1,2,2:end-1,] 
+    # P[2:end-1,end,2:end-1]  .= P[2:end-1,end-1,2:end-1,]
+    # P[:,:,1]    .= P[:,:,2]
+    # P[:,:,end]  .= P[:,:,end-1]
     return nothing
 end
 
@@ -226,9 +314,9 @@ function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, ε
     return nothing
 end
 
-function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, Δx, Δy, Δz )
+function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
 
-    _Δx, _Δy, _Δz = 1.0/Δx, 1.0/Δy, 1.0/Δz
+    _Δx, _Δy, _Δz, _Δt = 1.0/Δx, 1.0/Δy, 1.0/Δz, 1.0/Δt
 
     Threads.@threads for k = 1:size(P,3)-1
         @inbounds for j = 1:size(P,2)-1
@@ -258,7 +346,7 @@ function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P
                     end
                 end
                 if (i<=size(Fp,1)) && (j<=size(Fp,2)) && (k<=size(Fp,3))
-                    Fp[i,j,k] = -∇V[i,j,k]
+                    Fp[i,j,k] = -∇V[i,j,k] - (log( ρ[i,j,k] ) - log( ρ0[i,j,k]))*_Δt
                 end
             end
         end
@@ -319,6 +407,6 @@ function UpdateVP( dVxdτ, dVydτ, dVzdτ, dPdτ, Vx, Vy, Vz, P, ρnum, Δτ, Κ
 end
 
 # @time main( 1 )
-@time main( 2 )
+@time main( 1 )
 
 

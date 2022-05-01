@@ -9,7 +9,6 @@ nt            = 400
 ∇V_BG         = 1.0e-14
 r             = 1e-3
 βr            = 1.0e-10
-Gr            = 3e30
 ρr            = 3000
 ηr            = 1e25
 Lx,  Ly,  Lz  =  1.0e-2,  (3.0/32)*1e-2,  1.0e-2 
@@ -60,7 +59,6 @@ Lx,  Ly,  Lz = Lx/Lc,  Ly/Lc,  Lz/Lc
 ε_BG, ∇V_BG  = ε_BG/εc, ∇V_BG/εc 
 r      /= Lc
 βr     /= (1.0/σc)
-Gr     /= σc
 ρr     /= ρc
 Pr     /= σc
 Pini   /= σc
@@ -81,32 +79,21 @@ dρ    = zeros(ncx+0, ncy+0, ncz+0)
 Vx    = zeros(ncx+1, ncy+2, ncz+2)
 Vy    = zeros(ncx+2, ncy+1, ncz+2)
 Vz    = zeros(ncx+2, ncy+2, ncz+1)
+ηc    = zeros(ncx+0, ncy+0, ncz+0)
 ρ0    = zeros(ncx+0, ncy+0, ncz+0)
 ρ     = zeros(ncx+0, ncy+0, ncz+0)
 β     = zeros(ncx+0, ncy+0, ncz+0)
+ηv    = zeros(ncx+1, ncy+1, ncz+1)
 τxx   = zeros(ncx+2, ncy+2, ncz+2)
 τyy   = zeros(ncx+2, ncy+2, ncz+2)
 τzz   = zeros(ncx+2, ncy+2, ncz+2)
 τxy   = zeros(ncx+1, ncy+1, ncz+0)
 τxz   = zeros(ncx+1, ncy+0, ncz+1)
 τyz   = zeros(ncx+0, ncy+1, ncz+1)
-τxx0  = zeros(ncx+2, ncy+2, ncz+2)
-τyy0  = zeros(ncx+2, ncy+2, ncz+2)
-τzz0  = zeros(ncx+2, ncy+2, ncz+2)
-τxy0  = zeros(ncx+1, ncy+1, ncz+0)
-τxz0  = zeros(ncx+1, ncy+0, ncz+1)
-τyz0  = zeros(ncx+0, ncy+1, ncz+1)
 τii   = zeros(ncx+0, ncy+0, ncz+0)
-ηc    = zeros(ncx+0, ncy+0, ncz+0)
-ηv    = zeros(ncx+1, ncy+1, ncz+1)
 ηxy   = zeros(ncx+1, ncy+1, ncz+0)
 ηxz   = zeros(ncx+1, ncy+0, ncz+1)
 ηyz   = zeros(ncx+0, ncy+1, ncz+1)
-Gc    = zeros(ncx+0, ncy+0, ncz+0)
-Gv    = zeros(ncx+1, ncy+1, ncz+1)
-Gxy   = zeros(ncx+1, ncy+1, ncz+0)
-Gxz   = zeros(ncx+1, ncy+0, ncz+1)
-Gyz   = zeros(ncx+0, ncy+1, ncz+1)
 ∇V    = zeros(ncx+0, ncy+0, ncz+0) 
 εxx   = zeros(ncx+0, ncy+0, ncz+0) 
 εyy   = zeros(ncx+0, ncy+0, ncz+0)
@@ -130,47 +117,35 @@ xce = LinRange(-Lx/2-Δx/2, Lx/2+Δx/2, ncx+2)
 yce = LinRange(-Ly/2-Δy/2, Ly/2+Δy/2, ncy+2)
 zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 ##########
-InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
+InitialCondition( Vx, Vy, Vz, ηv, ηc, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr )
 P .= Pini
 UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
 InterpV2C( ηc, ηv )
 InterpV2C( ηv[2:end-1,2:end-1,2:end-1], ηc )
 InterpV2C( ηc, ηv )
 InterpV2xyz( ηxy, ηxz, ηyz, ηv )
-#
-InterpV2C( Gc, Gv )
-InterpV2C( Gv[2:end-1,2:end-1,2:end-1], Gc )
-InterpV2C( Gc, Gv )
-InterpV2xyz( Gxy, Gxz, Gyz, Gv )
 ##########
 niter  = 1e5
 nout   = 500
 Reopt  = 1*pi
-cfl    = 0.5
+cfl    = 0.25
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 tol    = 1e-8
-η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δt))
-Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
+Δτ     = ρnum*Δy^2 /maximum(ηc) /6.1 * cfl
 ΚΔτ    = cfl * Δt/βr * Δx / Lx  * 10.0 
 @printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
 ##########
 for it=1:nt
     ###
     @printf("#### Time step %04d ####\n", it)
-    P0   .= P
-    ρ0   .= ρ
-    τxx0 .= τxx
-    τyy0 .= τyy
-    τzz0 .= τzz
-    τxy0 .= τxy
-    τxz0 .= τxz
-    τyz0 .= τyz
+    P0 .= P
+    ρ0 .= ρ
     ###
     for iter=1:niter
         SetBoundaries( Vx, Vy, Vz, P )
         UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
         ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
-        ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
+        ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz )
         ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
         UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
         UpdateVP( dVxdτ, dVydτ, dVzdτ, Fp, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
@@ -224,7 +199,7 @@ end
 return nothing
 end
 
-function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
+function InitialCondition( Vx, Vy, Vz, ηv, ηc, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr )
 
     ri, ro, ar = r, 2r, 2
     Threads.@threads for k = 1:length(zce)
@@ -234,16 +209,16 @@ function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce,
                 if (j<=size(Vy,2)) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
                 if (k<=size(Vz,3)) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
                 if (i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3)) 
-                    Gv[i,j,k] = Gr 
-                    ηv[i,j,k] = ηr/100 
-                    if ( (xv[i]*xv[i]/(ar*ro)^2 + zv[k]*zv[k]/ro^2) < 1.0 )  ηv[i,j,k] = ηr      end 
-                    if ( (xv[i]*xv[i]/(ar*ri)^2 + zv[k]*zv[k]/ri^2) < 1.0 )  ηv[i,j,k] = ηr/100.0 end  
+                    ηv[i,j,k] = ηr
+                    #if ( (xv[i]*xv[i]/(ar*ro)^2 + zv[k]*zv[k]/ro^2) < 1.0 )  ηv[i,j,k] = ηr      end 
+                    if ( (xv[i]*xv[i]/(ar*ri)^2 + zv[k]*zv[k]/ri^2) < 1.0 )  ηv[i,j,k] = ηr/100  end  
                 end
                 if (i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)) 
                     β[i,j,k] = βr
-                    if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  dρ[i,j,k] = dρinc  end  
-                    if ( (xce[i+1]*xce[i+1]/(ar*ro)^2 + zce[k+1]*zce[k+1]/ro^2) < 1.0 )  β[i,j,k]  = βr/1.5 end
-                    if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  β[i,j,k]  = βr     end  
+                    dρ[i,j,k] = dρinc
+                    if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  dρ[i,j,k] = 0.0  end  
+                    #if ( (xce[i+1]*xce[i+1]/(ar*ro)^2 + zce[k+1]*zce[k+1]/ro^2) < 1.0 )  β[i,j,k]  = βr     end
+                    if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  β[i,j,k]  = βr*1.5  end  
                 end
             end
         end
@@ -373,16 +348,14 @@ function ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, V
     return nothing
 end
 
-function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
+function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz )
 
     Threads.@threads for k = 1:size(εxx,3)
         @inbounds for j = 1:size(εxx,2)
             for i = 1:size(εxx,1)
-                η_e  = Gc[i,j,k]*Δt
-                η_ve = 1.0/(1.0/ηc[i,j,k] + 1.0/η_e)
-                τxx[i+1,j+1,k+1] = 2*η_ve*( εxx[i,j,k] + τxx0[i,j,k]/(2η_e) )
-                τyy[i+1,j+1,k+1] = 2*η_ve*( εyy[i,j,k] + τyy0[i,j,k]/(2η_e) )
-                τzz[i+1,j+1,k+1] = 2*η_ve*( εzz[i,j,k] + τzz0[i,j,k]/(2η_e) )
+                τxx[i+1,j+1,k+1] = 2*ηc[i,j,k]*εxx[i,j,k]
+                τyy[i+1,j+1,k+1] = 2*ηc[i,j,k]*εyy[i,j,k]
+                τzz[i+1,j+1,k+1] = 2*ηc[i,j,k]*εzz[i,j,k]
             end
         end
     end
@@ -391,19 +364,13 @@ function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0,
         @inbounds for j = 1:size(εxx,2)+1
             for i = 1:size(εxx,1)+1
                 if (i<=size(εxy,1)) && (j<=size(εxy,2)) && (k<=size(εxy,3))
-                    η_e  = Gxy[i,j,k]*Δt
-                    η_ve = 1.0/(1.0/ηxy[i,j,k] + 1.0/η_e)
-                    τxy[i,j,k] = 2*η_ve*( εxy[i,j,k] + τxy0[i,j,k]/(2η_e) )
+                    τxy[i,j,k] = 2*ηxy[i,j,k]*εxy[i,j,k]
                 end
                 if (i<=size(εxz,1)) && (j<=size(εxz,2)) && (k<=size(εxz,3))
-                    η_e  = Gxz[i,j,k]*Δt
-                    η_ve = 1.0/(1.0/ηxz[i,j,k] + 1.0/η_e)
-                    τxz[i,j,k] = 2*η_ve*( εxz[i,j,k] + τxz0[i,j,k]/(2η_e) )
+                    τxz[i,j,k] = 2*ηxz[i,j,k]*εxz[i,j,k]
                 end
                 if (i<=size(εyz,1)) && (j<=size(εyz,2)) && (k<=size(εyz,3))
-                    η_e  = Gyz[i,j,k]*Δt
-                    η_ve = 1.0/(1.0/ηyz[i,j,k] + 1.0/η_e)
-                    τyz[i,j,k] = 2*η_ve*( εyz[i,j,k] + τyz0[i,j,k]/(2η_e) ) 
+                    τyz[i,j,k] = 2*ηyz[i,j,k]*εyz[i,j,k]
                 end
             end
         end

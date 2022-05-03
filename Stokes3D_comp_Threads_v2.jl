@@ -3,8 +3,8 @@ import Statistics: mean
 import LinearAlgebra: norm
 
 function main( n )
-nt            = 400
-Δtr           = 5e10
+nt            = 1000
+Δtr           = 5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
 r             = 1e-3
@@ -169,9 +169,9 @@ for it=1:nt
     ###
     dρdP  = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
     Δt    = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
-    # η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
-    # Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
-    # ΚΔτ    = cfl * Δtr/βr * Δx / Lx  * 10.0 
+    η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δt))
+    Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
+    ΚΔτ    = cfl * Δt/βr * Δx / Lx  * 5.0 
     @printf("##########################################\n")
     @printf("#### Time step %04d --- Δt = %2.2e P = %2.2e ####\n", it, Δt*tc, P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2]*σc/1e9)
     @printf("##########################################\n")

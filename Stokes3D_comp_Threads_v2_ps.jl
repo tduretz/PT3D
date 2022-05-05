@@ -147,7 +147,7 @@ xce = LinRange(-Lx/2-Δx/2, Lx/2+Δx/2, ncx+2)
 yce = LinRange(-Ly/2-Δy/2, Ly/2+Δy/2, ncy+2)
 zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 ##########
-InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
+@parallel InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
 P .= Pini
 @parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
 @parallel InterpV2C( ηc, ηv )
@@ -259,29 +259,24 @@ end
 return nothing
 end
 
-function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
-
+@parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
     ri, ro, ar = r, 2r, 2
-    Threads.@threads for k = 1:length(zce)
-        @inbounds for j = 1:length(yce)
-            for i = 1:length(xce)
-                if (i<=size(Vx,1)) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
-                if (j<=size(Vy,2)) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
-                if (k<=size(Vz,3)) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
-                if (i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3)) 
-                    Gv[i,j,k] = Gr 
-                    ηv[i,j,k] = ηr/100 
-                    if ( (xv[i]*xv[i]/(ar*ro)^2 + zv[k]*zv[k]/ro^2) < 1.0 )  ηv[i,j,k] = ηr      end 
-                    if ( (xv[i]*xv[i]/(ar*ri)^2 + zv[k]*zv[k]/ri^2) < 1.0 )  ηv[i,j,k] = ηr/100.0 end  
-                end
-                if (i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)) 
-                    β[i,j,k] = βr
-                    if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  dρ[i,j,k] = dρinc  end  
-                    if ( (xce[i+1]*xce[i+1]/(ar*ro)^2 + zce[k+1]*zce[k+1]/ro^2) < 1.0 )  β[i,j,k]  = βr/1.5 end
-                    if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  β[i,j,k]  = βr     end  
-                end
-            end
-        end
+    # Vertices
+    if (i<=size(Vx,1)) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
+    if (j<=size(Vy,2)) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
+    if (k<=size(Vz,3)) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
+    if (i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3)) 
+        Gv[i,j,k] = Gr 
+        ηv[i,j,k] = ηr/100 
+        if ( (xv[i]*xv[i]/(ar*ro)^2 + zv[k]*zv[k]/ro^2) < 1.0 )  ηv[i,j,k] = ηr      end 
+        if ( (xv[i]*xv[i]/(ar*ri)^2 + zv[k]*zv[k]/ri^2) < 1.0 )  ηv[i,j,k] = ηr/100.0 end  
+    end
+    # Centroids
+    if (i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)) 
+        β[i,j,k] = βr
+        if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  dρ[i,j,k] = dρinc  end  
+        if ( (xce[i+1]*xce[i+1]/(ar*ro)^2 + zce[k+1]*zce[k+1]/ro^2) < 1.0 )  β[i,j,k]  = βr/1.5 end
+        if ( (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0 )  β[i,j,k]  = βr     end  
     end
     return nothing
 end
@@ -367,7 +362,6 @@ end
 end
 
 @parallel_indices (i,j,k) function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
-  
     if (i<=size(εxx,1)) && (j<=size(εxx,2)) && (k<=size(εxx,3))
         η_e  = Gc[i,j,k]*Δt
         η_ve = 1.0/(1.0/ηc[i,j,k] + 1.0/η_e)
@@ -375,7 +369,6 @@ end
         τyy[i+1,j+1,k+1] = 2*η_ve*( εyy[i,j,k] + τyy0[i,j,k]/(2η_e) )
         τzz[i+1,j+1,k+1] = 2*η_ve*( εzz[i,j,k] + τzz0[i,j,k]/(2η_e) )
     end
-
     if (i<=size(εxy,1)) && (j<=size(εxy,2)) && (k<=size(εxy,3))
         η_e  = Gxy[i,j,k]*Δt
         η_ve = 1.0/(1.0/ηxy[i,j,k] + 1.0/η_e)
@@ -395,7 +388,6 @@ end
 end
 
 @parallel_indices (i,j,k) function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
-
     if (i<=size(Fx,1)) && (j<=size(Fx,2)) && (k<=size(Fx,3))
         if (i>1 && i<size(Fx,1)) # avoid Dirichlets
             Fx[i,j,k]  = (τxx[i+1,j+1,k+1] - τxx[i,j+1,k+1]) / Δx
@@ -427,15 +419,12 @@ end
 end
 
 @parallel_indices (i,j,k) function UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
-
     if (i<=size(Fx,1)) && (j<=size(Fx,2)) && (k<=size(Fx,3))
         dVxdτ[i,j,k] = (1.0-ρnum)*dVxdτ[i,j,k] + Fx[i,j,k]
     end
-
     if (i<=size(Fy,1)) && (j<=size(Fy,2)) && (k<=size(Fy,3))
         dVydτ[i,j,k] = (1.0-ρnum)*dVydτ[i,j,k] + Fy[i,j,k]
     end
-
     if (i<=size(Fz,1)) && (j<=size(Fz,2)) && (k<=size(Fz,3))
         dVzdτ[i,j,k] = (1.0-ρnum)*dVzdτ[i,j,k] + Fz[i,j,k]
     end
@@ -443,19 +432,15 @@ end
 end
 
 @parallel_indices (i,j,k) function UpdateVP( dVxdτ, dVydτ, dVzdτ, dPdτ, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
-
     if (i<=size(dVxdτ,1)) && (j<=size(dVxdτ,2)) && (k<=size(dVxdτ,3))
         Vx[i,j+1,k+1] += Δτ/ρnum*dVxdτ[i,j,k]
     end
-
     if (i<=size(dVydτ,1)) && (j<=size(dVydτ,2)) && (k<=size(dVydτ,3))
         Vy[i+1,j,k+1] += Δτ/ρnum*dVydτ[i,j,k]
     end
-
     if (i<=size(dVzdτ,1)) && (j<=size(dVzdτ,2)) && (k<=size(dVzdτ,3))
         Vz[i+1,j+1,k] += Δτ/ρnum*dVzdτ[i,j,k]
     end
-
     if (i<=size(dPdτ,1)) && (j<=size(dPdτ,2)) && (k<=size(dPdτ,3))
         P[i+1,j+1,k+1] += ΚΔτ*dPdτ[i,j,k] 
     end

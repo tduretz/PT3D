@@ -150,15 +150,15 @@ zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
 P .= Pini
 @parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
-InterpV2C( ηc, ηv )
-InterpV2C( ηv[2:end-1,2:end-1,2:end-1], ηc )
-InterpV2C( ηc, ηv )
-InterpV2xyz( ηxy, ηxz, ηyz, ηv )
+@parallel InterpV2C( ηc, ηv )
+@parallel InterpV2C( ηv[2:end-1,2:end-1,2:end-1], ηc )
+@parallel InterpV2C( ηc, ηv )
+@parallel InterpV2xyz( ηxy, ηxz, ηyz, ηv )
 #
-InterpV2C( Gc, Gv )
-InterpV2C( Gv[2:end-1,2:end-1,2:end-1], Gc )
-InterpV2C( Gc, Gv )
-InterpV2xyz( Gxy, Gxz, Gyz, Gv )
+@parallel InterpV2C( Gc, Gv )
+@parallel InterpV2C( Gv[2:end-1,2:end-1,2:end-1], Gc )
+@parallel InterpV2C( Gc, Gv )
+@parallel InterpV2xyz( Gxy, Gxz, Gyz, Gv )
 ##########
 niter  = 1e5
 nout   = 500
@@ -323,33 +323,22 @@ end
     return
 end
 
-function InterpV2C( ηc, ηv )
-    Threads.@threads for k = 1:size(ηc,3)
-        @inbounds for j = 1:size(ηc,2)
-            for i = 1:size(ηc,1)
-                ηc[i,j,k]  = 1.0/8.0*( ηv[i,  j,  k] + ηv[i+1,j,k  ] + ηv[i,j+1,k  ] + ηv[i,  j,k+1  ] )
-                ηc[i,j,k] += 1.0/8.0*( ηv[i+1,j+1,k] + ηv[i+1,j,k+1] + ηv[i,j+1,k+1] + ηv[i+1,j+1,k+1] )
-            end
-        end
+@parallel_indices (i,j,k) function InterpV2C( ηc, ηv )
+    if (i<=size(ηc,1)) && (j<=size(ηc,2)) && (k<=size(ηc,3))
+        ηc[i,j,k]  = 1.0/8.0*( ηv[i,  j,  k] + ηv[i+1,j,k  ] + ηv[i,j+1,k  ] + ηv[i,  j,k+1  ] )
+        ηc[i,j,k] += 1.0/8.0*( ηv[i+1,j+1,k] + ηv[i+1,j,k+1] + ηv[i,j+1,k+1] + ηv[i+1,j+1,k+1] )
     end
     return nothing
 end
 
-function InterpV2xyz( ηxy, ηxz, ηyz, ηv )
-    Threads.@threads for k = 1:size(ηv,3)
-        @inbounds for j = 1:size(ηv,2)
-            for i = 1:size(ηv,1)
-                if (k<=size(ηxy,3)) ηxy[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i,j,k+1]) end
-                if (j<=size(ηxz,2)) ηxz[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i,j+1,k]) end
-                if (i<=size(ηyz,1)) ηyz[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i+1,j,k]) end
-            end
-        end
-    end
+@parallel_indices (i,j,k) function InterpV2xyz( ηxy, ηxz, ηyz, ηv )
+    if (k<=size(ηxy,3)) ηxy[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i,j,k+1]) end
+    if (j<=size(ηxz,2)) ηxz[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i,j+1,k]) end
+    if (i<=size(ηyz,1)) ηyz[i,j,k]  = 1.0/2.0*( ηv[i,j,k] + ηv[i+1,j,k]) end
     return nothing
 end
 
 @parallel_indices (i,j,k) function ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
-    
     if (i<=size(εxx,1)) && (j<=size(εxx,2)) && (k<=size(εxx,3))
         dVxΔx      = (Vx[i+1,j+1,k+1] - Vx[i,j+1,k+1]) / Δx
         dVyΔy      = (Vy[i+1,j+1,k+1] - Vy[i+1,j,k+1]) / Δy

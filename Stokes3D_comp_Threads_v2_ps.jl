@@ -1,8 +1,10 @@
-using Revise, Printf, Plots, SpecialFunctions
+using  Printf, Plots
 import Statistics: mean
 import LinearAlgebra: norm
+import SpecialFunctions: erfc
 
 const USE_GPU = false
+const GPU_ID  = 0
 using ParallelStencil
 using ParallelStencil.FiniteDifferences3D
 @static if USE_GPU
@@ -72,19 +74,19 @@ Vc = Lc/tc
 #-----------
 Lx,  Ly,  Lz = Lx/Lc,  Ly/Lc,  Lz/Lc
 ε_BG, ∇V_BG  = ε_BG/εc, ∇V_BG/εc 
-r      /= Lc
-βr     /= (1.0/σc)
-Gr     /= σc
-ρr     /= ρc
-Pr     /= σc
-Pini   /= σc
-ηr     /= μc
-Δtr    /= tc
-dPr    /= σc
-Pt     /= σc
-dρinc  /= ρc
-Ptens  /= σc
-C      /= σc
+r        /= Lc
+βr       /= (1.0/σc)
+Gr       /= σc
+ρr       /= ρc
+Pr       /= σc
+Pini     /= σc
+ηr       /= μc
+Δtr      /= tc
+dPr      /= σc
+Pt       /= σc
+dρinc    /= ρc
+Ptens    /= σc
+C        /= σc
 max_dρdP /= (ρc/σc)
 #-----------
 Ft    = @zeros(ncx+0, ncy+0, ncz+0)
@@ -147,7 +149,7 @@ zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 ##########
 InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
 P .= Pini
-UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
+@parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
 InterpV2C( ηc, ηv )
 InterpV2C( ηv[2:end-1,2:end-1,2:end-1], ηc )
 InterpV2C( ηc, ηv )
@@ -168,16 +170,14 @@ tol    = 1e-8
 Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
 ΚΔτ    = cfl * Δtr/βr * Δx / Lx  * 10.0 
 @printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
-
-
 # P_1d2 = (P_1d/σc)
 # dρdP  = 0.5641895835477563*dρinc.*exp.( .-(( P_1d2.-Pt)./dPr).^2 ) ./ dPr
 # Δt_1d2 = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.5)
 ##########
 for it=1:nt
     ###
-    dρdP  = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
-    Δt    = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
+    dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
+    Δt     = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
     η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δt))
     Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
     ΚΔτ    = cfl * Δt/βr * Δx / Lx  * 5.0 
@@ -231,7 +231,7 @@ for it=1:nt
     @printf("ρ  : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
     ##########
     Pin = P[2:end-1,2:end-1,2:end-1]
-    ComputeStressInvariant( τii, τxx, τyy, τzz, τxy, τxz, τyz )
+    @parallel ComputeStressInvariant( τii, τxx, τyy, τzz, τxy, τxz, τyz )
     Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
     Ft .= Ptens  .- Pin
     @printf("max Ft = %2.2e\n", maximum(Ft))
@@ -286,22 +286,15 @@ function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce,
     return nothing
 end
 
-function ComputeStressInvariant( τII, τxx, τyy, τzz, τxy, τxz, τyz )
-
-    Threads.@threads for k = 1:size(τII,3)
-        @inbounds for j = 1:size(τII,2)
-            for i = 1:size(τII,1)
-                if (i<=size(τII,1) && j<=size(τII,2) && k<=size(τII,3))
-                    Jii      = 0.5*τxx[i+1,j+1,k+1]^2
-                    Jii     += 0.5*τyy[i+1,j+1,k+1]^2
-                    Jii     += 0.5*τzz[i+1,j+1,k+1]^2
-                    Jii     += (0.25*(τxy[i,j,k] + τxy[i+1,j,k] + τxy[i,j+1,k] + τxy[i+1,j+1,k]) )^2
-                    Jii     += (0.25*(τxz[i,j,k] + τxz[i+1,j,k] + τxz[i,j,k+1] + τxz[i+1,j,k+1]) )^2
-                    Jii     += (0.25*(τyz[i,j,k] + τyz[i,j+1,k] + τyz[i,j,k+1] + τyz[i,j+1,k+1]) )^2
-                    τII[i,j,k] = sqrt(Jii)
-                end
-            end
-        end
+@parallel_indices (i,j,k) function ComputeStressInvariant( τII, τxx, τyy, τzz, τxy, τxz, τyz )
+    if (i<=size(τII,1) && j<=size(τII,2) && k<=size(τII,3))
+        Jii      = 0.5*τxx[i+1,j+1,k+1]^2
+        Jii     += 0.5*τyy[i+1,j+1,k+1]^2
+        Jii     += 0.5*τzz[i+1,j+1,k+1]^2
+        Jii     += (0.25*(τxy[i,j,k] + τxy[i+1,j,k] + τxy[i,j+1,k] + τxy[i+1,j+1,k]) )^2
+        Jii     += (0.25*(τxz[i,j,k] + τxz[i+1,j,k] + τxz[i,j,k+1] + τxz[i+1,j,k+1]) )^2
+        Jii     += (0.25*(τyz[i,j,k] + τyz[i,j+1,k] + τyz[i,j,k+1] + τyz[i,j+1,k+1]) )^2
+        τII[i,j,k] = sqrt(Jii)
     end
     return nothing
 end

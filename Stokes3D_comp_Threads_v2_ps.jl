@@ -14,7 +14,7 @@ else
 end
 
 function main( n )
-nt            = 1000
+nt            = 1
 Δtr           = 5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
@@ -305,21 +305,21 @@ end
     return nothing
 end
 
-@parallel_indices (iy,iz) function bc_x!(A::Data.Array)
-    A[  1, iy,  iz] = A[    2,   iy,   iz]
-    A[end, iy,  iz] = A[end-1,   iy,   iz]
+@parallel_indices (j,k) function bc_x!(A::Data.Array)
+    A[  1, j,  k] = A[    2,   j,   k]
+    A[end, j,  k] = A[end-1,   j,   k]
     return
 end
 
-@parallel_indices (ix,iz) function bc_y!(A::Data.Array)
-    A[ ix,  1,  iz] = A[   ix,    2,   iz]
-    A[ ix,end,  iz] = A[   ix,end-1,   iz]
+@parallel_indices (i,k) function bc_y!(A::Data.Array)
+    A[ i,  1,  k] = A[   i,    2,   k]
+    A[ i,end,  k] = A[   i,end-1,   k]
     return
 end
 
-@parallel_indices (ix,iy) function bc_z!(A::Data.Array)
-    A[ ix,  iy,  1] = A[   ix,   iy,    2]
-    A[ ix,  iy,end] = A[   ix,   iy,end-1]
+@parallel_indices (i,j) function bc_z!(A::Data.Array)
+    A[ i,  j,  1] = A[   i,   j,    2]
+    A[ i,  j,end] = A[   i,   j,end-1]
     return
 end
 

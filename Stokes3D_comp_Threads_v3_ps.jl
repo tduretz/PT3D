@@ -1,5 +1,5 @@
 # V-E model
-# rheology on centers and vertices
+# rheology on centers ONLY
 # viscosity with extended stencil (useful?)
 using  Printf, Plots
 import Statistics: mean
@@ -17,7 +17,7 @@ else
 end
 
 function main( n )
-nt            = 1
+nt            = 100
 Δtr           = 5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
@@ -110,6 +110,9 @@ Vz    = @zeros(ncx+2, ncy+2, ncz+1)
 τxy   = @zeros(ncx+1, ncy+1, ncz+0)
 τxz   = @zeros(ncx+1, ncy+0, ncz+1)
 τyz   = @zeros(ncx+0, ncy+1, ncz+1)
+τxyc  = @zeros(ncx+2, ncy+2, ncz+2)
+τxzc  = @zeros(ncx+2, ncy+2, ncz+2)
+τyzc  = @zeros(ncx+2, ncy+2, ncz+2)
 τxx0  = @zeros(ncx+2, ncy+2, ncz+2)
 τyy0  = @zeros(ncx+2, ncy+2, ncz+2)
 τzz0  = @zeros(ncx+2, ncy+2, ncz+2)
@@ -131,6 +134,9 @@ Gyz   = @zeros(ncx+0, ncy+1, ncz+1)
 εxx   = @zeros(ncx+0, ncy+0, ncz+0) 
 εyy   = @zeros(ncx+0, ncy+0, ncz+0)
 εzz   = @zeros(ncx+0, ncy+0, ncz+0)
+# εxyc  = @zeros(ncx+0, ncy+0, ncz+0)
+# εxzc  = @zeros(ncx+0, ncy+0, ncz+0)
+# εyzc  = @zeros(ncx+0, ncy+0, ncz+0)
 εxy   = @zeros(ncx+1, ncy+1, ncz+0)
 εxz   = @zeros(ncx+1, ncy+0, ncz+1)
 εyz   = @zeros(ncx+0, ncy+1, ncz+1)
@@ -209,7 +215,11 @@ for it=1:nt
         @parallel (1:size(Vy,1), 1:size(Vy,2)) bc_z!(Vy)
         @parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
         @parallel ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
-        @parallel ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
+        
+        @parallel ShearStressCentroids( τxyc, τxzc, τyzc, εxy, εxz, εyz, ηc, Gc, Δt )
+        @parallel ComputeStressFromCentroids( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, Gc, Δt, τxyc, τxzc, τyzc )
+
+        # @parallel ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
         @parallel ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
         @parallel UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
         @parallel UpdateVP( dVxdτ, dVydτ, dVzdτ, Fp, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
@@ -229,14 +239,17 @@ for it=1:nt
         end
     end
     ##########
-    @printf("τxx: min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc)
-    @printf("τyy: min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc)
-    @printf("τzz: min = %2.4e --- max = %2.4e\n", minimum(τzz[2:end-1,2:end-1,2:end-1])*σc, maximum(τzz[2:end-1,2:end-1,2:end-1])*σc)
-    @printf("P0 : min = %2.4e --- max = %2.4e\n", minimum( P0[2:end-1,2:end-1,2:end-1])*σc, maximum( P0[2:end-1,2:end-1,2:end-1])*σc)
-    @printf("P  : min = %2.4e --- max = %2.4e\n", minimum(  P[2:end-1,2:end-1,2:end-1])*σc, maximum(  P[2:end-1,2:end-1,2:end-1])*σc)
-    @printf("ρ0 : min = %2.4e --- max = %2.4e\n", minimum( ρ0)*ρc, maximum( ρ0)*ρc)
-    @printf("ρ  : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
+    @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
+    @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
+    @printf("τzz : min = %2.4e --- max = %2.4e\n", minimum(τzz[2:end-1,2:end-1,2:end-1])*σc, maximum(τzz[2:end-1,2:end-1,2:end-1])*σc/1e9)
+    @printf("τxzc: min = %2.4e --- max = %2.4e\n", minimum(τxzc[2:end-1,2:end-1,2:end-1])*σc, maximum(τxzc[2:end-1,2:end-1,2:end-1])*σc/1e9)
+    @printf("P0  : min = %2.4e --- max = %2.4e\n", minimum( P0[2:end-1,2:end-1,2:end-1])*σc, maximum( P0[2:end-1,2:end-1,2:end-1])*σc/1e9)
+    @printf("P   : min = %2.4e --- max = %2.4e\n", minimum(  P[2:end-1,2:end-1,2:end-1])*σc, maximum(  P[2:end-1,2:end-1,2:end-1])*σc/1e9)
+    @printf("ρ0  : min = %2.4e --- max = %2.4e\n", minimum( ρ0)*ρc, maximum( ρ0)*ρc)
+    @printf("ρ   : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
     ##########
+    # @parallel ComputeStressFromCentroids( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, Gc, Δt, τxyc, τxzc, τyzc )
+    
     Pin = P[2:end-1,2:end-1,2:end-1]
     @parallel ComputeStressInvariant( τii, τxx, τyy, τzz, τxy, τxz, τyz )
     Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
@@ -251,6 +264,10 @@ for it=1:nt
     # p1 = heatmap(dρ[:, (size(dρ,2))÷2, :]'.*ρc)
     p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     #p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2) )
+    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+
+    # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, τxz[:, (size(τxz,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
     p2  = plot(P_1d./1e9, ρ_1d,legend=false)
@@ -458,6 +475,42 @@ end
     end
     if i<=size(dPdτ,1) && j<=size(dPdτ,2) && k<=size(dPdτ,3)
         P[i+1,j+1,k+1] += ΚΔτ*dPdτ[i,j,k] 
+    end
+    return nothing
+end
+
+@parallel_indices (i,j,k) function ShearStressCentroids( τxyc, τxzc, τyzc, εxy, εxz, εyz, ηc, Gc, Δt )
+    if i<=size(τxyc,1)-2 && j<=size(τxyc,2)-2 && k<=size(τxyc,3)-2
+        εxyc = 0.25*(εxy[i,j,k] + εxy[i+1,j,k] + εxy[i,j+1,k] + εxy[i+1,j+1,k])
+        εxzc = 0.25*(εxz[i,j,k] + εxz[i+1,j,k] + εxz[i,j,k+1] + εxz[i+1,j,k+1])
+        εyzc = 0.25*(εyz[i,j,k] + εyz[i,j+1,k] + εyz[i,j,k+1] + εyz[i,j+1,k+1])
+        η_e  = Gc[i,j,k]*Δt
+        η_ve = 1.0 / ( 1.0/ηc[i+1,j+1,k+1] + 1.0/η_e )
+        τxyc[i+1,j+1,k+1] = 2η_ve*εxyc
+        τxzc[i+1,j+1,k+1] = 2η_ve*εxzc
+        τyzc[i+1,j+1,k+1] = 2η_ve*εyzc
+    end
+    return nothing
+end
+
+@parallel_indices (i,j,k) function ComputeStressFromCentroids( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, Gc, Δt, τxyc, τxzc, τyzc )
+    if i<=size(εxx,1) && j<=size(εxx,2) && k<=size(εxx,3)
+        η_e  = Gc[i,j,k]*Δt
+        η_ve = 1.0 / ( 1.0/ηc[i+1,j+1,k+1] + 1.0/η_e )
+        τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e) )
+        τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e) )
+        τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e) )
+    end
+    if i<=size(τxy,1) && j<=size(τxy,2) && k<=size(τxy,3)
+        # if i>1 && j>1 && i<=size(τxy,1)-1 && j<=size(τxy,2)-1
+            τxy[i,j,k] = 0.25*(τxyc[i,j,k+1] + τxyc[i+1,j,k+1] + τxyc[i,j+1,k+1] + τxyc[i+1,j+1,k+1])
+        # end
+    end
+    if i<=size(τxz,1) && j<=size(τxz,2) && k<=size(τxz,3)
+        τxz[i,j,k] = 0.25*(τxzc[i,j+1,k] + τxzc[i+1,j+1,k] + τxzc[i,j+1,k+1] + τxzc[i+1,j+1,k+1])
+    end
+    if i<=size(τyz,1) && j<=size(τyz,2) && k<=size(τyz,3)
+        τyz[i,j,k] = 0.25*(τyzc[i+1,j,k] + τyzc[i+1,j+1,k] + τyzc[i+1,j,k+1] + τyzc[i+1,j+1,k+1])
     end
     return nothing
 end

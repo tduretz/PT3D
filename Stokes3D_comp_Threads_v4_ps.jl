@@ -1,6 +1,7 @@
 # V-E-P model
 # rheology on centers ONLY
 # viscosity with extended stencil (useful?)
+# dt for 2D
 using  Printf, Plots
 import Statistics: mean
 import LinearAlgebra: norm
@@ -17,11 +18,11 @@ else
 end
 
 function main( n )
-nt            = 100
+nt            = 500
 Δtr           = 5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
-r             = 1e-3
+r             = 1e-3*2/3
 βr            = 1.0e-10
 Gr            = 3e30
 ρr            = 3000
@@ -43,7 +44,9 @@ P_1d   = LinRange( Pmin, Pmax, 200 )
 ρr_1d  = ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
 ρ_1d   = ρr_1d .*exp.(βr.*(P_1d.-Pr))
 ϕ      = 20.0
+ψ      = 5.0
 C      = 1e7
+η_vp   = 0.0
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
 #-----------
 dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
@@ -97,6 +100,7 @@ Fs    = @zeros(ncx+0, ncy+0, ncz+0)
 Y     = @zeros(ncx+0, ncy+0, ncz+0)
 P0    = @zeros(ncx+2, ncy+2, ncz+2)
 P     = @zeros(ncx+2, ncy+2, ncz+2)
+P1    = @zeros(ncx+2, ncy+2, ncz+2)
 dρ    = @zeros(ncx+0, ncy+0, ncz+0)
 Vx    = @zeros(ncx+1, ncy+2, ncz+2)
 Vy    = @zeros(ncx+2, ncy+1, ncz+2)
@@ -104,6 +108,7 @@ Vz    = @zeros(ncx+2, ncy+2, ncz+1)
 ρ0    = @zeros(ncx+0, ncy+0, ncz+0)
 ρ     = @zeros(ncx+0, ncy+0, ncz+0)
 β     = @zeros(ncx+0, ncy+0, ncz+0)
+λ     = @zeros(ncx+0, ncy+0, ncz+0)
 τxx   = @zeros(ncx+2, ncy+2, ncz+2)
 τyy   = @zeros(ncx+2, ncy+2, ncz+2)
 τzz   = @zeros(ncx+2, ncy+2, ncz+2)
@@ -172,25 +177,20 @@ P .= Pini
 ##########
 niter  = 1e5
 nout   = 500
-Reopt  = 1*pi
-cfl    = 0.5
+Reopt  = 0.5*pi
+cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
+λrel   = 1.0  # not yet activated
 tol    = 1e-8
 η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
-Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
-ΚΔτ    = cfl * Δtr/βr * Δx / Lx  * 10.0 
-@printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
-# P_1d2 = (P_1d/σc)
-# dρdP  = 0.5641895835477563*dρinc.*exp.( .-(( P_1d2.-Pt)./dPr).^2 ) ./ dPr
-# Δt_1d2 = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.5)
 ##########
 for it=1:nt
     ###
     dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
     Δt     = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
     η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δt))
-    Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
-    ΚΔτ    = cfl * Δt/βr * Δx / Lx  * 5.0 
+    Δτ     = ρnum*min(Δx,Δz).^2 / η_ve /4.1
+    ΚΔτ    = Δt/βr * min(Δx,Δz) / sqrt(Lx^2+Lz^2) * cfl*10
     @printf("##########################################\n")
     @printf("#### Time step %04d --- Δt = %2.2e P = %2.2e ####\n", it, Δt*tc, P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2]*σc/1e9)
     @printf("##########################################\n")
@@ -212,12 +212,9 @@ for it=1:nt
         @parallel (1:size(Vy,1), 1:size(Vy,2)) bc_z!(Vy)
         @parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
         @parallel ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
-        
-        @parallel StressOnCentroids( τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, ηc, Gc, Δt )
+        @parallel StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosd(ϕ), sind(ϕ), sind(ψ), η_vp )
         @parallel ShearStressFromCentroids( τxy, τxz, τyz, τxyc, τxzc, τyzc )
-        
-        # @parallel ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
-        @parallel ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
+        @parallel ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P1, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
         @parallel UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
         @parallel UpdateVP( dVxdτ, dVydτ, dVzdτ, Fp, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
         if mod(iter,nout) == 0 || iter==1
@@ -235,6 +232,7 @@ for it=1:nt
             nFx>1e8    && error("Blow up!") 
         end
     end
+    P1 .= P
     ##########
     @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
@@ -244,11 +242,8 @@ for it=1:nt
     @printf("P   : min = %2.4e --- max = %2.4e\n", minimum(  P[2:end-1,2:end-1,2:end-1])*σc, maximum(  P[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("ρ0  : min = %2.4e --- max = %2.4e\n", minimum( ρ0)*ρc, maximum( ρ0)*ρc)
     @printf("ρ   : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
-    ##########
-    # @parallel ComputeStressFromCentroids( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, Gc, Δt, τxyc, τxzc, τyzc )
-    
+    ##########    
     Pin = P[2:end-1,2:end-1,2:end-1]
-    @parallel ComputeStressInvariant( τii, τxx, τyy, τzz, τxy, τxz, τyz )
     Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
     Ft .= Ptens  .- Pin
     @printf("max Ft = %2.2e\n", maximum(Ft))
@@ -257,47 +252,45 @@ for it=1:nt
     Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.<Ft] .= 2
     Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
     Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
-    # p = heatmap(Vz[:, (ncy+1)÷2,:]'.*Vc)
-    # p1 = heatmap(dρ[:, (size(dρ,2))÷2, :]'.*ρc)
     p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    #p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2) )
+    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2) )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-
     # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, τxz[:, (size(τxz,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, λ[:, (size(λ,2))÷2, :]'.*(1.0/tc), title="λ [1/s]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
     p2  = plot(P_1d./1e9, ρ_1d,legend=false)
     p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
     p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
     p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
     display(plot(p1,p2,p3,p4))
-# p1 = plot(P_1d./1e9, Δt_1d,legend=false)
-# p1 = plot!(P_1d2*σc./1e9, Δt_1d2*tc,legend=false)
-# display(p1)
+    # p1 = plot(P_1d./1e9, Δt_1d,legend=false)
+    # p1 = plot!(P_1d2*σc./1e9, Δt_1d2*tc,legend=false)
+    # display(p1)
 end
 #-----------
 return nothing
 end
 
 @parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
-    ri, ro, ar = r, 2r, 2
+    ri, ro, ar, ari = r, 4r, 1.6, 1.3
     # Vertices
-    if i<=size(Vx,1) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
-    if j<=size(Vy,2) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
-    if k<=size(Vz,3) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
+    if i<=size(Vx,1) Vx[i,j,k] = (-0*ε_BG + 1//3*∇V_BG)*xv[i] end
+    if j<=size(Vy,2) Vy[i,j,k] = (          1//3*∇V_BG)*yv[j] end
+    if k<=size(Vz,3) Vz[i,j,k] = ( 0*ε_BG + 1//3*∇V_BG)*zv[k] end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
         Gv[i,j,k] = Gr 
         ηv[i,j,k] = ηr/100 
-        if (xv[i]*xv[i]/(ar*ro)^2 + zv[k]*zv[k]/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
-        if (xv[i]*xv[i]/(ar*ri)^2 + zv[k]*zv[k]/ri^2) < 1.0  ηv[i,j,k] = ηr/100.0 end  
+        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
+        if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/100.0 end  
     end
     # Centroids
     if i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)
-        β[i,j,k] = βr
-        if (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0  dρ[i,j,k] = dρinc  end  
-        if (xce[i+1]*xce[i+1]/(ar*ro)^2 + zce[k+1]*zce[k+1]/ro^2) < 1.0  β[i,j,k]  = βr/1.5 end
-        if (xce[i+1]*xce[i+1]/(ar*ri)^2 + zce[k+1]*zce[k+1]/ri^2) < 1.0  β[i,j,k]  = βr     end  
+        β[i,j,k] = βr/1.2
+        if (xce[i+1]^2/(ar*ro)^2 + zce[k+1]^2/ro^2) < 1.0  β[i,j,k]  = βr*1.2 end
+        if ((xce[i+1]-0.1)^2/(ari*ri)^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  β[i,j,k]  = βr end  
+        if ((xce[i+1]-0.1)^2/(ari*ri)^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  dρ[i,j,k] = dρinc  end  
     end
     return nothing
 end
@@ -390,32 +383,6 @@ end
     return nothing
 end
 
-@parallel_indices (i,j,k) function ComputeStress( τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, εxx, εyy, εzz, εxy, εxz, εyz, ηc, ηxy, ηxz, ηyz, Gc, Gxy, Gxz, Gyz, Δt )
-    if i<=size(εxx,1) && j<=size(εxx,2) && k<=size(εxx,3)
-        η_e  = Gc[i,j,k]*Δt
-        η_ve = 1.0 / ( 1.0/ηc[i+1,j+1,k+1] + 1.0/η_e )
-        τxx[i+1,j+1,k+1] = 2*η_ve*( εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e) )
-        τyy[i+1,j+1,k+1] = 2*η_ve*( εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e) )
-        τzz[i+1,j+1,k+1] = 2*η_ve*( εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e) )
-    end
-    if i<=size(εxy,1) && j<=size(εxy,2) && k<=size(εxy,3)
-        η_e  = Gxy[i,j,k]*Δt
-        η_ve = 1.0 / ( 1.0/ηxy[i,j,k] + 1.0/η_e )
-        τxy[i,j,k] = 2*η_ve*( εxy[i,j,k] + τxy0[i,j,k]/(2η_e) )
-    end
-    if i<=size(εxz,1) && j<=size(εxz,2) && k<=size(εxz,3)
-        η_e  = Gxz[i,j,k]*Δt
-        η_ve = 1.0 / ( 1.0/ηxz[i,j,k] + 1.0/η_e )
-        τxz[i,j,k] = 2*η_ve*( εxz[i,j,k] + τxz0[i,j,k]/(2η_e) )
-    end
-    if i<=size(εyz,1) && j<=size(εyz,2) && k<=size(εyz,3)
-        η_e  = Gyz[i,j,k]*Δt
-        η_ve = 1.0 / ( 1.0/ηyz[i,j,k] + 1.0/η_e )
-        τyz[i,j,k] = 2*η_ve*( εyz[i,j,k] + τyz0[i,j,k]/(2η_e) ) 
-    end
-    return nothing
-end
-
 @parallel_indices (i,j,k) function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
     if i<=size(Fx,1) && j<=size(Fx,2) && k<=size(Fx,3)
         if i>1 && i<size(Fx,1) # avoid Dirichlets
@@ -476,24 +443,53 @@ end
     return nothing
 end
 
-@parallel_indices (i,j,k) function StressOnCentroids( τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, ηc, Gc, Δt )
+@parallel_indices (i,j,k) function StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosϕ, sinϕ, sinψ, η_vp )
     if i<=size(τxx,1)-2 && j<=size(τxx,2)-2 && k<=size(τxx,3)-2
-        # Normal
+        # Trial pressure
+        P1[i+1,j+1,k+1] = P[i+1,j+1,k+1]
+        # Trial deviatoric normal stress
         η_e  = Gc[i,j,k]*Δt
         η_ve = 1.0 / ( 1.0/ηc[i+1,j+1,k+1] + 1.0/η_e )
         τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e) )
         τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e) )
         τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e) )
-        # Shear
-        εxyc = 0.25*(εxy[i,j,k] + εxy[i+1,j,k] + εxy[i,j+1,k] + εxy[i+1,j+1,k])
-        εxzc = 0.25*(εxz[i,j,k] + εxz[i+1,j,k] + εxz[i,j,k+1] + εxz[i+1,j,k+1])
-        εyzc = 0.25*(εyz[i,j,k] + εyz[i,j+1,k] + εyz[i,j,k+1] + εyz[i,j+1,k+1])
+        # Trial deviatoric shear stress
+        εxyc  = 0.25*( εxy[i,j,k] +  εxy[i+1,j,k] +  εxy[i,j+1,k] +  εxy[i+1,j+1,k])
+        εxzc  = 0.25*( εxz[i,j,k] +  εxz[i+1,j,k] +  εxz[i,j,k+1] +  εxz[i+1,j,k+1])
+        εyzc  = 0.25*( εyz[i,j,k] +  εyz[i,j+1,k] +  εyz[i,j,k+1] +  εyz[i,j+1,k+1])
         τxyc0 = 0.25*(τxy0[i,j,k] + τxy0[i+1,j,k] + τxy0[i,j+1,k] + τxy0[i+1,j+1,k])
         τxzc0 = 0.25*(τxz0[i,j,k] + τxz0[i+1,j,k] + τxz0[i,j,k+1] + τxz0[i+1,j,k+1])
         τyzc0 = 0.25*(τyz0[i,j,k] + τyz0[i,j+1,k] + τyz0[i,j,k+1] + τyz0[i,j+1,k+1])
         τxyc[i+1,j+1,k+1] = 2η_ve*(εxyc + τxyc0/(2η_e) )
         τxzc[i+1,j+1,k+1] = 2η_ve*(εxzc + τxzc0/(2η_e) )
         τyzc[i+1,j+1,k+1] = 2η_ve*(εyzc + τyzc0/(2η_e) )
+        # Plasticity
+        τii[i,j,k] = sqrt(0.5*(τxx[i+1,j+1,k+1]^2 + τyy[i+1,j+1,k+1]^2 + τzz[i+1,j+1,k+1]^2) + τxyc[i+1,j+1,k+1]^2 + τxzc[i+1,j+1,k+1]^2 + τyzc[i+1,j+1,k+1]^2)
+        F   = τii[i,j,k] - C*cosϕ - P[i+1,j+1,k+1]*sinϕ
+        if F>0
+            λ1    = F / ( η_ve + η_vp + 1.0./β[i,j,k]*Δt*sinϕ*sinψ )
+            τii1  = τii[i,j,k] - η_ve*λ1# - C*cosϕ - P1[i+1,j+1,k+1]*sinϕ
+            Eii1  = 0.5*(εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e))^2
+            Eii1 += 0.5*(εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e))^2
+            Eii1 += 0.5*(εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e))^2
+            Eii1 += (εxyc + τxyc0/(2η_e) )^2
+            Eii1 += (εxzc + τxzc0/(2η_e) )^2
+            Eii1 += (εyzc + τyzc0/(2η_e) )^2
+            Eii1  = sqrt(Eii1)
+            η_vep = τii1/2.0/Eii1
+            τxx[i+1,j+1,k+1]  = 2η_vep*( εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e) )
+            τyy[i+1,j+1,k+1]  = 2η_vep*( εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e) )
+            τzz[i+1,j+1,k+1]  = 2η_vep*( εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e) )
+            τxyc[i+1,j+1,k+1] = 2η_vep*(εxyc + τxyc0/(2η_e) )
+            τxzc[i+1,j+1,k+1] = 2η_vep*(εxzc + τxzc0/(2η_e) )
+            τyzc[i+1,j+1,k+1] = 2η_vep*(εyzc + τyzc0/(2η_e) )
+            P1[i+1,j+1,k+1]   += λ1./β[i,j,k]*Δt*sinψ
+            λ[i,j,k] = λ1
+            # @printf("Plastic, F_trial = %2.2e\n", F)
+            τii[i,j,k] = sqrt(0.5*(τxx[i+1,j+1,k+1]^2 + τyy[i+1,j+1,k+1]^2 + τzz[i+1,j+1,k+1]^2) + τxyc[i+1,j+1,k+1]^2 + τxzc[i+1,j+1,k+1]^2 + τyzc[i+1,j+1,k+1]^2)
+            F   = τii1 - C*cosϕ - P1[i+1,j+1,k+1]*sinϕ
+            # @printf("Plastic, F_corr  = %2.2e\n", F)
+        end
     end
     return nothing
 end
@@ -513,5 +509,5 @@ end
     return nothing
 end
 
-@time main( 1 )
-# @time main( 2 )
+# @time main( 1 )
+@time main( 2 )

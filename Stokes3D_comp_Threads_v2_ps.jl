@@ -1,6 +1,7 @@
 # V-E model
 # rheology on centers and vertices
 # viscosity with extended stencil (useful?)
+# dt for 2D
 using  Printf, Plots
 import Statistics: mean
 import LinearAlgebra: norm
@@ -17,7 +18,7 @@ else
 end
 
 function main( n )
-nt            = 1
+nt            = 100
 Δtr           = 5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
@@ -169,14 +170,11 @@ P .= Pini
 ##########
 niter  = 1e5
 nout   = 500
-Reopt  = 1*pi
-cfl    = 0.5
+Reopt  = 0.5*pi
+cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 tol    = 1e-8
 η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
-Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
-ΚΔτ    = cfl * Δtr/βr * Δx / Lx  * 10.0 
-@printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
 # P_1d2 = (P_1d/σc)
 # dρdP  = 0.5641895835477563*dρinc.*exp.( .-(( P_1d2.-Pt)./dPr).^2 ) ./ dPr
 # Δt_1d2 = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.5)
@@ -186,8 +184,8 @@ for it=1:nt
     dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
     Δt     = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
     η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δt))
-    Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
-    ΚΔτ    = cfl * Δt/βr * Δx / Lx  * 5.0 
+    Δτ     = ρnum*min(Δx,Δz).^2 / η_ve /4.1
+    ΚΔτ    = Δt/βr * min(Δx,Δz) / sqrt(Lx^2+Lz^2) * cfl*10
     @printf("##########################################\n")
     @printf("#### Time step %04d --- Δt = %2.2e P = %2.2e ####\n", it, Δt*tc, P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2]*σc/1e9)
     @printf("##########################################\n")
@@ -269,9 +267,9 @@ end
 @parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, β, βr, Gr )
     ri, ro, ar = r, 2r, 2
     # Vertices
-    if i<=size(Vx,1) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
+    if i<=size(Vx,1) Vx[i,j,k] = (-0ε_BG + 1//3*∇V_BG)*xv[i] end
     if j<=size(Vy,2) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
-    if k<=size(Vz,3) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
+    if k<=size(Vz,3) Vz[i,j,k] = ( 0ε_BG + 1//3*∇V_BG)*zv[k] end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
         Gv[i,j,k] = Gr 
         ηv[i,j,k] = ηr/100 
@@ -463,4 +461,3 @@ end
 end
 
 @time main( 1 )
-# @time main( 2 )

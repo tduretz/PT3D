@@ -46,7 +46,7 @@ P_1d   = LinRange( Pmin, Pmax, 200 )
 ϕ      = 20.0
 ψ      = 5.0
 C      = 1e7
-η_vp   = 0.0
+η_vp   = 1e20
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
 #-----------
 dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
@@ -93,6 +93,7 @@ Pt       /= σc
 dρinc    /= ρc
 Ptens    /= σc
 C        /= σc
+η_vp     /= μc
 max_dρdP /= (ρc/σc)
 #-----------
 Ft    = @zeros(ncx+0, ncy+0, ncz+0)
@@ -181,7 +182,7 @@ Reopt  = 0.5*pi
 cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 λrel   = 1.0  # not yet activated
-tol    = 1e-8
+tol    = 1e-6
 η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
 ##########
 for it=1:nt
@@ -212,7 +213,7 @@ for it=1:nt
         @parallel (1:size(Vy,1), 1:size(Vy,2)) bc_z!(Vy)
         @parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
         @parallel ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
-        @parallel StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosd(ϕ), sind(ϕ), sind(ψ), η_vp )
+        @parallel StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosd(ϕ), sind(ϕ), sind(ψ), η_vp, λrel )
         @parallel ShearStressFromCentroids( τxy, τxz, τyz, τxyc, τxzc, τyzc )
         @parallel ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P1, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
         @parallel UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
@@ -443,7 +444,7 @@ end
     return nothing
 end
 
-@parallel_indices (i,j,k) function StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosϕ, sinϕ, sinψ, η_vp )
+@parallel_indices (i,j,k) function StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosϕ, sinϕ, sinψ, η_vp, λrel )
     if i<=size(τxx,1)-2 && j<=size(τxx,2)-2 && k<=size(τxx,3)-2
         # Trial pressure
         P1[i+1,j+1,k+1] = P[i+1,j+1,k+1]
@@ -484,11 +485,14 @@ end
             τxzc[i+1,j+1,k+1] = 2η_vep*(εxzc + τxzc0/(2η_e) )
             τyzc[i+1,j+1,k+1] = 2η_vep*(εyzc + τyzc0/(2η_e) )
             P1[i+1,j+1,k+1]   += λ1./β[i,j,k]*Δt*sinψ
-            λ[i,j,k] = λ1
+            λ[i,j,k] *= (1.0-λrel)
+            λ[i,j,k] += λrel*λ1
             # @printf("Plastic, F_trial = %2.2e\n", F)
             τii[i,j,k] = sqrt(0.5*(τxx[i+1,j+1,k+1]^2 + τyy[i+1,j+1,k+1]^2 + τzz[i+1,j+1,k+1]^2) + τxyc[i+1,j+1,k+1]^2 + τxzc[i+1,j+1,k+1]^2 + τyzc[i+1,j+1,k+1]^2)
-            F   = τii1 - C*cosϕ - P1[i+1,j+1,k+1]*sinϕ
+            F   = τii1 - C*cosϕ - P1[i+1,j+1,k+1]*sinϕ + λ1*η_vp
             # @printf("Plastic, F_corr  = %2.2e\n", F)
+        else
+            λ[i,j,k] = 0.0
         end
     end
     return nothing

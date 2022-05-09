@@ -181,7 +181,7 @@ nout   = 500
 Reopt  = 0.5*pi
 cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
-λrel   = 1.0  # not yet activated
+λrel   = 0.5  
 tol    = 1e-6
 η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
 ##########
@@ -233,7 +233,7 @@ for it=1:nt
             nFx>1e8    && error("Blow up!") 
         end
     end
-    P1 .= P
+    P .= P1
     ##########
     @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
@@ -514,4 +514,4 @@ end
 end
 
 # @time main( 1 )
-@time main( 2 )
+@time main( 4 )

@@ -116,15 +116,15 @@ Vz    = @zeros(ncx+2, ncy+2, ncz+1)
 τxx   = @zeros(ncx+2, ncy+2, ncz+2)
 τyy   = @zeros(ncx+2, ncy+2, ncz+2)
 τzz   = @zeros(ncx+2, ncy+2, ncz+2)
-τxy   = @zeros(ncx+1, ncy+1, ncz+0)
-τxz   = @zeros(ncx+1, ncy+0, ncz+1)
-τyz   = @zeros(ncx+0, ncy+1, ncz+1)
+τxy   = @zeros(ncx+1, ncy+1, ncz+2)
+τxz   = @zeros(ncx+1, ncy+2, ncz+1)
+τyz   = @zeros(ncx+2, ncy+1, ncz+1)
 τxx0  = @zeros(ncx+2, ncy+2, ncz+2)
 τyy0  = @zeros(ncx+2, ncy+2, ncz+2)
 τzz0  = @zeros(ncx+2, ncy+2, ncz+2)
-τxy0  = @zeros(ncx+1, ncy+1, ncz+0)
-τxz0  = @zeros(ncx+1, ncy+0, ncz+1)
-τyz0  = @zeros(ncx+0, ncy+1, ncz+1)
+τxy0  = @zeros(ncx+1, ncy+1, ncz+2)
+τxz0  = @zeros(ncx+1, ncy+2, ncz+1)
+τyz0  = @zeros(ncx+2, ncy+1, ncz+1)
 τii   = @zeros(ncx+0, ncy+0, ncz+0)
 ηc    = @zeros(ncx+2, ncy+2, ncz+2)
 ηv    = @zeros(ncx+1, ncy+1, ncz+1)
@@ -141,9 +141,9 @@ Gyz   = @zeros(ncx+0, ncy+1, ncz+1)
 εxx   = @zeros(ncx+2, ncy+2, ncz+2) 
 εyy   = @zeros(ncx+2, ncy+2, ncz+2)
 εzz   = @zeros(ncx+2, ncy+2, ncz+2)
-εxy   = @zeros(ncx+1, ncy+1, ncz+0)
-εxz   = @zeros(ncx+1, ncy+0, ncz+1)
-εyz   = @zeros(ncx+0, ncy+1, ncz+1)
+εxy   = @zeros(ncx+1, ncy+1, ncz+2)
+εxz   = @zeros(ncx+1, ncy+2, ncz+1)
+εyz   = @zeros(ncx+2, ncy+1, ncz+1)
 Fx    = @zeros(ncx+1, ncy+0, ncz+0)
 Fy    = @zeros(ncx+0, ncy+1, ncz+0)
 Fz    = @zeros(ncx+0, ncy+0, ncz+1)
@@ -309,9 +309,9 @@ end
         Jii      = 0.5*τxx[i+1,j+1,k+1]^2
         Jii     += 0.5*τyy[i+1,j+1,k+1]^2
         Jii     += 0.5*τzz[i+1,j+1,k+1]^2
-        Jii     += (0.25*(τxy[i,j,k] + τxy[i+1,j,k] + τxy[i,j+1,k] + τxy[i+1,j+1,k]) )^2
-        Jii     += (0.25*(τxz[i,j,k] + τxz[i+1,j,k] + τxz[i,j,k+1] + τxz[i+1,j,k+1]) )^2
-        Jii     += (0.25*(τyz[i,j,k] + τyz[i,j+1,k] + τyz[i,j,k+1] + τyz[i,j+1,k+1]) )^2
+        Jii     += (0.25*(τxy[i,j,k+1] + τxy[i+1,j,k+1] + τxy[i,j+1,k+1] + τxy[i+1,j+1,k+1]) )^2
+        Jii     += (0.25*(τxz[i,j+1,k] + τxz[i+1,j+1,k] + τxz[i,j+1,k+1] + τxz[i+1,j+1,k+1]) )^2
+        Jii     += (0.25*(τyz[i+1,j,k] + τyz[i+1,j+1,k] + τyz[i+1,j,k+1] + τyz[i+1,j+1,k+1]) )^2
         τII[i,j,k] = sqrt(Jii)
     end
     return nothing
@@ -374,20 +374,20 @@ end
         εyy[i+1,j+1,k+1] = dVyΔy - 1//3 * ∇V[i+1,j+1,k+1]
         εzz[i+1,j+1,k+1] = dVzΔz - 1//3 * ∇V[i+1,j+1,k+1]
     end
-    if i<=size(εxy,1) && j<=size(εxy,2) && k<=size(εxy,3)
+    if i<=size(εxy,1) && j<=size(εxy,2) && k<=size(εxy,3)-2
         dVxΔy      = (Vx[i,j+1,k+1] - Vx[i,j,k+1]) / Δy 
         dVyΔx      = (Vy[i+1,j,k+1] - Vy[i,j,k+1]) / Δx 
-        εxy[i,j,k] = 1//2*(dVxΔy + dVyΔx)
+        εxy[i,j,k+1] = 1//2*(dVxΔy + dVyΔx)
     end
-    if i<=size(εxz,1) && j<=size(εxz,2) && k<=size(εxz,3)
+    if i<=size(εxz,1) && j<=size(εxz,2)-2 && k<=size(εxz,3)
         dVxΔz      = (Vx[i  ,j+1,k+1] - Vx[i,j+1,k]) / Δz                     
         dVzΔx      = (Vz[i+1,j+1,k  ] - Vz[i,j+1,k]) / Δx 
-        εxz[i,j,k] = 1//2*(dVxΔz + dVzΔx)
+        εxz[i,j+1,k] = 1//2*(dVxΔz + dVzΔx)
     end
-    if i<=size(εyz,1) && j<=size(εyz,2) && k<=size(εyz,3)
+    if i<=size(εyz,1)-2 && j<=size(εyz,2) && k<=size(εyz,3)
         dVyΔz      = (Vy[i+1,j,k+1] - Vy[i+1,j,k]) / Δz 
         dVzΔy      = (Vz[i+1,j+1,k] - Vz[i+1,j,k]) / Δy 
-        εyz[i,j,k] = 1//2*(dVyΔz + dVzΔy)
+        εyz[i+1,j,k] = 1//2*(dVyΔz + dVzΔy)
     end
     return nothing
 end
@@ -397,28 +397,28 @@ end
         if i>1 && i<size(Fx,1) # avoid Dirichlets
             Fx[i,j,k]  = (τxx[i+1,j+1,k+1] - τxx[i,j+1,k+1]) / Δx
             Fx[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i,j+1,k+1]) / Δx
-            Fx[i,j,k] += (τxy[i,j+1,k] - τxy[i,j,k]) / Δy
-            Fx[i,j,k] += (τxz[i,j,k+1] - τxz[i,j,k]) / Δz
+            Fx[i,j,k] += (τxy[i,j+1,k+1] - τxy[i,j,k+1]) / Δy
+            Fx[i,j,k] += (τxz[i,j+1,k+1] - τxz[i,j+1,k]) / Δz
         end
     end
     if i<=size(Fy,1) && j<=size(Fy,2) && k<=size(Fy,3)
         if j>1 && j<size(Fy,2) # avoid Dirichlets
             Fy[i,j,k]  = (τyy[i+1,j+1,k+1] - τyy[i+1,j,k+1]) / Δy
             Fy[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j,k+1]) / Δy
-            Fy[i,j,k] += (τxy[i+1,j,k] - τxy[i,j,k]) / Δx
-            Fy[i,j,k] += (τyz[i,j,k+1] - τyz[i,j,k]) / Δz
+            Fy[i,j,k] += (τxy[i+1,j,k+1] - τxy[i,j,k+1]) / Δx
+            Fy[i,j,k] += (τyz[i+1,j,k+1] - τyz[i+1,j,k]) / Δz
         end
     end
     if i<=size(Fz,1) && j<=size(Fz,2) && k<=size(Fz,3)
         if k>1 && k<size(Fz,3) # avoid Dirichlets
             Fz[i,j,k]  = (τzz[i+1,j+1,k+1] - τzz[i+1,j+1,k]) / Δz
             Fz[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j+1,k]) / Δz
-            Fz[i,j,k] += (τxz[i+1,j,k] - τxz[i,j,k]) / Δx
-            Fz[i,j,k] += (τyz[i,j+1,k] - τyz[i,j,k]) / Δy
+            Fz[i,j,k] += (τxz[i+1,j+1,k] - τxz[i,j+1,k]) / Δx
+            Fz[i,j,k] += (τyz[i+1,j+1,k] - τyz[i+1,j,k]) / Δy
         end
     end
     if i<=size(Fp,1) && j<=size(Fp,2) && k<=size(Fp,3)
-        Fp[i,j,k] = -∇V[i,j,k] - (log( ρ[i,j,k] ) - log( ρ0[i,j,k])) / Δt
+        Fp[i,j,k] = -∇V[i+1,j+1,k+1] - (log( ρ[i,j,k] ) - log( ρ0[i,j,k])) / Δt
     end
     return nothing
 end
@@ -548,12 +548,12 @@ end
         τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i+1,j+1,k+1] + τyy0[i+1,j+1,k+1]/(2η_e) )
         τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i+1,j+1,k+1] + τzz0[i+1,j+1,k+1]/(2η_e) )
         # Trial deviatoric shear stress
-        εxyc  = 0.25*( εxy[i,j,k] +  εxy[i+1,j,k] +  εxy[i,j+1,k] +  εxy[i+1,j+1,k])
-        εxzc  = 0.25*( εxz[i,j,k] +  εxz[i+1,j,k] +  εxz[i,j,k+1] +  εxz[i+1,j,k+1])
-        εyzc  = 0.25*( εyz[i,j,k] +  εyz[i,j+1,k] +  εyz[i,j,k+1] +  εyz[i,j+1,k+1])
-        τxyc0 = 0.25*(τxy0[i,j,k] + τxy0[i+1,j,k] + τxy0[i,j+1,k] + τxy0[i+1,j+1,k])
-        τxzc0 = 0.25*(τxz0[i,j,k] + τxz0[i+1,j,k] + τxz0[i,j,k+1] + τxz0[i+1,j,k+1])
-        τyzc0 = 0.25*(τyz0[i,j,k] + τyz0[i,j+1,k] + τyz0[i,j,k+1] + τyz0[i,j+1,k+1])
+        εxyc  = 0.25*( εxy[i,j,k+1] +  εxy[i+1,j,k+1] +  εxy[i,j+1,k+1] +  εxy[i+1,j+1,k+1])
+        εxzc  = 0.25*( εxz[i,j+1,k] +  εxz[i+1,j+1,k] +  εxz[i,j+1,k+1] +  εxz[i+1,j+1,k+1])
+        εyzc  = 0.25*( εyz[i+1,j,k] +  εyz[i+1,j+1,k] +  εyz[i+1,j,k+1] +  εyz[i+1,j+1,k+1])
+        τxyc0 = 0.25*(τxy0[i,j,k+1] + τxy0[i+1,j,k+1] + τxy0[i,j+1,k+1] + τxy0[i+1,j+1,k+1])
+        τxzc0 = 0.25*(τxz0[i,j+1,k] + τxz0[i+1,j+1,k] + τxz0[i,j+1,k+1] + τxz0[i+1,j+1,k+1])
+        τyzc0 = 0.25*(τyz0[i+1,j,k] + τyz0[i+1,j+1,k] + τyz0[i+1,j,k+1] + τyz0[i+1,j+1,k+1])
         τxyc  = 2η_ve*(εxyc + τxyc0/(2η_e) )
         τxzc  = 2η_ve*(εxzc + τxzc0/(2η_e) )
         τyzc  = 2η_ve*(εyzc + τyzc0/(2η_e) )
@@ -563,7 +563,7 @@ end
         if (i==25 && j==2 && k==66) @printf("Plastic, F_corr  = %2.2e\n", F) end
     end
     # XY
-    if i<=size(τxy,1)-0 && j<=size(τxy,2)-0 && k<=size(τxy,3)-0
+    if i<=size(τxy,1)-0 && j<=size(τxy,2)-0 && k>1 && k<=size(τxy,3)-2
         # Centroid viscosity
         η  = 1.0/2.0*( ηv[i,  j,  k] + ηv[i,j,k+1] )
         # Centroid shear modulus
@@ -572,6 +572,7 @@ end
         β  = 1.0/2.0*( βv[i,  j,  k] + βv[i,j,k+1] )
         # Trial pressure
         Pv = 1.0/4.0*( P[i,  j,  k+1] + P[i+1,j,k+1] + P[i,j+1,k+1] + P[i+1,j+1,k+1 ] )
+        Pv1= Pv
         # Visco-elastic rheology
         η_e  = G*Δt
         η_ve = 1.0 / ( 1.0/η + 1.0/η_e )
@@ -585,9 +586,20 @@ end
         τxxv = 2η_ve*( εxxv + τxxv0/(2η_e) )
         τyyv = 2η_ve*( εyyv + τyyv0/(2η_e) )
         τzzv = 2η_ve*( εzzv + τzzv0/(2η_e) )
+        # εxy   = @zeros(ncx+1, ncy+1, ncz+2)
+        # εxz   = @zeros(ncx+1, ncy+2, ncz+1)
+        # εyz   = @zeros(ncx+2, ncy+1, ncz+1)
         # Trial deviatoric shear stress
-        
-
+        εxzv  = 1.0/4.0*(  εxz[i,  j,  k-1] +  εxz[i,j+1,k-1] +  εxz[i,j,k] +  εxz[i,j+1,k ] )
+        τxzv0 = 1.0/4.0*( τxz0[i,  j,  k-1] + τxz0[i,j+1,k-1] + τxz0[i,j,k] + τxz0[i,j+1,k ] )
+        εyzv  = 1.0/4.0*(  εyz[i,  j,  k-1] +  εyz[i+1,j,k-1] +  εyz[i,j,k] +  εyz[i+1,j,k ] )
+        τyzv0 = 1.0/4.0*( τyz0[i,  j,  k-1] + τyz0[i+1,j,k-1] + τyz0[i,j,k] + τyz0[i+1,j,k ] )
+        τxyv = 2η_ve*( εxxv + τxxv0/(2η_e) )
+        τxzv = 2η_ve*( εxzv + τxzv0/(2η_e) )
+        τyzv = 2η_ve*( εzzv + τzzv0/(2η_e) )
+        # Plasticity
+        F, λ1 = PlasticCorrection( λxy[i,j,k], εxxv, εyyv, εzzv, εxy[i,j,k], εxzv, εyzv, τxxv, τyyv, τzzv, τxy[i,j,k], τxzv, τyzv, τxxv0, τyyv0, τzzv0, τxy0[i,j,k], τxzv0, τyzv0, Pv, Pv1, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
+        λxy[i,j,k] = λ1
     end
     return nothing
 end

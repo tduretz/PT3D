@@ -454,80 +454,6 @@ end
     return nothing
 end
 
-# @parallel_indices (i,j,k) function StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosϕ, sinϕ, sinψ, η_vp, λrel )
-#     if i<=size(τxx,1)-2 && j<=size(τxx,2)-2 && k<=size(τxx,3)-2
-#         # Trial pressure
-#         P1[i+1,j+1,k+1] = P[i+1,j+1,k+1]
-#         # Trial deviatoric normal stress
-#         η_e  = Gc[i,j,k]*Δt
-#         η_ve = 1.0 / ( 1.0/ηc[i+1,j+1,k+1] + 1.0/η_e )
-#         τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e) )
-#         τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e) )
-#         τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e) )
-#         # Trial deviatoric shear stress
-#         εxyc  = 0.25*( εxy[i,j,k] +  εxy[i+1,j,k] +  εxy[i,j+1,k] +  εxy[i+1,j+1,k])
-#         εxzc  = 0.25*( εxz[i,j,k] +  εxz[i+1,j,k] +  εxz[i,j,k+1] +  εxz[i+1,j,k+1])
-#         εyzc  = 0.25*( εyz[i,j,k] +  εyz[i,j+1,k] +  εyz[i,j,k+1] +  εyz[i,j+1,k+1])
-#         τxyc0 = 0.25*(τxy0[i,j,k] + τxy0[i+1,j,k] + τxy0[i,j+1,k] + τxy0[i+1,j+1,k])
-#         τxzc0 = 0.25*(τxz0[i,j,k] + τxz0[i+1,j,k] + τxz0[i,j,k+1] + τxz0[i+1,j,k+1])
-#         τyzc0 = 0.25*(τyz0[i,j,k] + τyz0[i,j+1,k] + τyz0[i,j,k+1] + τyz0[i,j+1,k+1])
-#         τxyc[i+1,j+1,k+1] = 2η_ve*(εxyc + τxyc0/(2η_e) )
-#         τxzc[i+1,j+1,k+1] = 2η_ve*(εxzc + τxzc0/(2η_e) )
-#         τyzc[i+1,j+1,k+1] = 2η_ve*(εyzc + τyzc0/(2η_e) )
-#         # Plasticity
-#         τii[i,j,k] = sqrt(0.5*(τxx[i+1,j+1,k+1]^2 + τyy[i+1,j+1,k+1]^2 + τzz[i+1,j+1,k+1]^2) + τxyc[i+1,j+1,k+1]^2 + τxzc[i+1,j+1,k+1]^2 + τyzc[i+1,j+1,k+1]^2)
-#         F   = τii[i,j,k] - C*cosϕ - P[i+1,j+1,k+1]*sinϕ
-#         if F>0
-#             λ1    = F / ( η_ve + η_vp + 1.0./β[i,j,k]*Δt*sinϕ*sinψ )
-#             τii1  = τii[i,j,k] - η_ve*λ1# - C*cosϕ - P1[i+1,j+1,k+1]*sinϕ
-#             Eii1  = 0.5*(εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e))^2
-#             Eii1 += 0.5*(εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e))^2
-#             Eii1 += 0.5*(εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e))^2
-#             Eii1 += (εxyc + τxyc0/(2η_e) )^2
-#             Eii1 += (εxzc + τxzc0/(2η_e) )^2
-#             Eii1 += (εyzc + τyzc0/(2η_e) )^2
-#             Eii1  = sqrt(Eii1)
-#             η_vep = τii1/2.0/Eii1
-#             τxx[i+1,j+1,k+1]  = 2η_vep*( εxx[i,j,k] + τxx0[i+1,j+1,k+1]/(2η_e) )
-#             τyy[i+1,j+1,k+1]  = 2η_vep*( εyy[i,j,k] + τyy0[i+1,j+1,k+1]/(2η_e) )
-#             τzz[i+1,j+1,k+1]  = 2η_vep*( εzz[i,j,k] + τzz0[i+1,j+1,k+1]/(2η_e) )
-#             τxyc[i+1,j+1,k+1] = 2η_vep*(εxyc + τxyc0/(2η_e) )
-#             τxzc[i+1,j+1,k+1] = 2η_vep*(εxzc + τxzc0/(2η_e) )
-#             τyzc[i+1,j+1,k+1] = 2η_vep*(εyzc + τyzc0/(2η_e) )
-#             P1[i+1,j+1,k+1]   += λ1./β[i,j,k]*Δt*sinψ
-#             λ[i,j,k] *= (1.0-λrel)
-#             λ[i,j,k] += λrel*λ1
-#             # @printf("Plastic, F_trial = %2.2e\n", F)
-#             τii[i,j,k] = sqrt(0.5*(τxx[i+1,j+1,k+1]^2 + τyy[i+1,j+1,k+1]^2 + τzz[i+1,j+1,k+1]^2) + τxyc[i+1,j+1,k+1]^2 + τxzc[i+1,j+1,k+1]^2 + τyzc[i+1,j+1,k+1]^2)
-#             F   = τii1 - C*cosϕ - P1[i+1,j+1,k+1]*sinϕ + λ1*η_vp
-#             # @printf("Plastic, F_corr  = %2.2e\n", F)
-#         else
-#             λ[i,j,k] = 0.0
-#         end
-#     end
-#     return nothing
-# end
-
-# @parallel_indices (i,j,k) function ShearStressFromCentroids( τxy, τxz, τyz, τxyc, τxzc, τyzc )
-#     if i<=size(τxy,1) && j<=size(τxy,2) && k<=size(τxy,3)
-#         if i>1 && j>1 && i<=size(τxy,1)-1 && j<=size(τxy,2)-1
-#             τxy[i,j,k] = 0.25*(τxyc[i,j,k+1] + τxyc[i+1,j,k+1] + τxyc[i,j+1,k+1] + τxyc[i+1,j+1,k+1])
-#         end
-#     end
-#     if i<=size(τxz,1) && j<=size(τxz,2) && k<=size(τxz,3)
-#         if i>1 && k>1 && i<=size(τxz,1)-1 && j<=size(τxz,3)-1
-#             τxz[i,j,k] = 0.25*(τxzc[i,j+1,k] + τxzc[i+1,j+1,k] + τxzc[i,j+1,k+1] + τxzc[i+1,j+1,k+1])
-#         end
-#     end
-#     if i<=size(τyz,1) && j<=size(τyz,2) && k<=size(τyz,3)
-#         if j>1 && k>1 && j<=size(τyz,2)-1 && j<=size(τyz,3)-1
-#             τyz[i,j,k] = 0.25*(τyzc[i+1,j,k] + τyzc[i+1,j+1,k] + τyzc[i+1,j,k+1] + τyzc[i+1,j+1,k+1])
-#         end
-#     end
-#     return nothing
-# end
-
-
 @parallel_indices (i,j,k) function StressEverywhere( P1, P, τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηv, βv, Gv, Δt, λc, λxy, λxz, λyz, C, cosϕ, sinϕ, sinψ, η_vp, λrel )
     # CENTROIDS    
     if i<=size(τxx,1)-2 && j<=size(τxx,2)-2 && k<=size(τxx,3)-2
@@ -560,8 +486,9 @@ end
         τxzc  = 2η_ve*(εxzc + τxzc0/(2η_e) )
         τyzc  = 2η_ve*(εyzc + τyzc0/(2η_e) )
         # Plasticity
-        F, λ1 = PlasticCorrection( λc[i,j,k], εxx[i+1,j+1,k+1], εyy[i+1,j+1,k+1], εzz[i+1,j+1,k+1], εxyc, εxzc, εyzc, τxx[i+1,j+1,k+1], τyy[i+1,j+1,k+1], τzz[i+1,j+1,k+1], τxyc, τxzc, τyzc, τxx0[i+1,j+1,k+1], τyy0[i+1,j+1,k+1], τzz0[i+1,j+1,k+1], τxyc0, τxzc0, τyzc0, P[i+1,j+1,k+1], P1[i+1,j+1,k+1], C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
-        λc[i,j,k] = λ1
+        F, λ1, τii1 = PlasticCorrection( λc[i,j,k], εxx[i+1,j+1,k+1], εyy[i+1,j+1,k+1], εzz[i+1,j+1,k+1], εxyc, εxzc, εyzc, τxx[i+1,j+1,k+1], τyy[i+1,j+1,k+1], τzz[i+1,j+1,k+1], τxyc, τxzc, τyzc, τxx0[i+1,j+1,k+1], τyy0[i+1,j+1,k+1], τzz0[i+1,j+1,k+1], τxyc0, τxzc0, τyzc0, P[i+1,j+1,k+1], P1[i+1,j+1,k+1], C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
+        λc[i,j,k]   = λ1
+        τii[i,j,k]  = τii1
         # if (i==25 && j==2 && k==66) @printf("Plastic, F_corr  = %2.2e\n", F) end
     end
     # XY
@@ -701,18 +628,19 @@ end
         Eii1 +=     (εyz + τyz0/(2η_e) )^2
         Eii1  = sqrt(Eii1)
         η_vep = τii1/2.0/Eii1
-        τxx = 2η_vep*( εxx + τxx0/(2η_e) )
-        τyy = 2η_vep*( εyy + τyy0/(2η_e) )
-        τzz = 2η_vep*( εzz + τzz0/(2η_e) )
-        τxy = 2η_vep*( εxy + τxy0/(2η_e) )
-        τxz = 2η_vep*( εxz + τxz0/(2η_e) )
-        τyz = 2η_vep*( εyz + τyz0/(2η_e) )
-        τii = sqrt(0.5*(τxx^2 + τyy^2 + τzz^2) + τxy^2 + τxz^2 + τyz^2)
-        F   = τii1 - C*cosϕ - P1*sinϕ - λ1*η_vp
+        τxx   = 2η_vep*( εxx + τxx0/(2η_e) )
+        τyy   = 2η_vep*( εyy + τyy0/(2η_e) )
+        τzz   = 2η_vep*( εzz + τzz0/(2η_e) )
+        τxy   = 2η_vep*( εxy + τxy0/(2η_e) )
+        τxz   = 2η_vep*( εxz + τxz0/(2η_e) )
+        τyz   = 2η_vep*( εyz + τyz0/(2η_e) )
+        τii   = sqrt(0.5*(τxx^2 + τyy^2 + τzz^2) + τxy^2 + τxz^2 + τyz^2)
+        F     = τii1 - C*cosϕ - P1*sinϕ - λ1*η_vp
     else
-        λ = 0.0
+        λ     =  0.0
+        τii1  = τii
     end
-    return F, λ     
+    return F, λ, τii1    
 end
 
 # @time main( 1 )

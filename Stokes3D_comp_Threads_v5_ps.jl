@@ -18,7 +18,7 @@ else
 end
 
 function main( n )
-nt            = 100
+nt            = 1
 Δtr           = 2.5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
@@ -38,7 +38,7 @@ Pt     = 3.5e9
 dρinc  = 300.0
 Ptens  = -2e7
 #-----------
-Pmin   = 2e9
+Pmin   = 1e9
 Pmax   = Pini 
 P_1d   = LinRange( Pmin, Pmax, 200 )
 ρr_1d  = ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
@@ -216,9 +216,6 @@ for it=1:nt
         @parallel UpdateDensity( ρ, ρr, β, P, Pr, dρ, Pt, dPr )
         @parallel ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
         @parallel StressEverywhere( P1, P, τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηv, βv, Gv, Δt, λc, λxy, λxz, λyz, C, cosd(ϕ), sind(ϕ), sind(ψ), η_vp, λrel )
-
-        # @parallel StressOnCentroids( P1, P, τxx, τyy, τzz, τxyc, τxzc, τyzc, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηc, β, Gc, Δt, λ, C, cosd(ϕ), sind(ϕ), sind(ψ), η_vp, λrel )
-        # @parallel ShearStressFromCentroids( τxy, τxz, τyz, τxyc, τxzc, τyzc )
         @parallel ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P1, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
         @parallel UpdateRates( dVxdτ, dVydτ, dVzdτ, ρnum, Fx, Fy, Fz, ncx, ncy, ncz )
         @parallel UpdateVP( dVxdτ, dVydτ, dVzdτ, Fp, Vx, Vy, Vz, P, ρnum, Δτ, ΚΔτ,  ncx, ncy, ncz )
@@ -259,11 +256,11 @@ for it=1:nt
     p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2) )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, τxz[:, (size(τxz,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, Gv[:, (size(Gv,2))÷2, :]'.*σc./1e9, title="Gv [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, λc[:, (size(λc,2))÷2, :]'.*(1.0/tc), title="λ [1/s]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, λxz[:, (size(λxz,2))÷2, :]'.*(1.0/tc), title="λxz [1/s]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, λxz[:, (size(λxz,2))÷2, :]'.*(1.0/tc), title="λxz [1/s]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
     p2  = plot(P_1d./1e9, ρ_1d,legend=false)
     p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
@@ -288,7 +285,7 @@ end
     if j<=size(Vy,2) Vy[i,j,k] = (          1//3*∇V_BG)*yv[j] end
     if k<=size(Vz,3) Vz[i,j,k] = ( 0*ε_BG + 1//3*∇V_BG)*zv[k] end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
-        Gv[i,j,k] = Gr 
+        Gv[i,j,k] = Gr#*(1.0 + 0.05*(0.5-rand()))
         βv[i,j,k] = βr/1.2
         ηv[i,j,k] = ηr/100 
         if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 

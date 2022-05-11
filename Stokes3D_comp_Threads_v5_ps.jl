@@ -29,7 +29,7 @@ nt            = 101
 ∇V_BG         = 1.0e-14
 r             = 1e-3*2/3
 βr            = 1.0e-10
-Gr            = 5e10
+Gr            = 1e11
 ρr            = 3000
 ηr            = 1e25
 Lx,  Ly,  Lz  =  1.0e-2,  (3.0/32)*1e-2,  1.0e-2 
@@ -148,6 +148,9 @@ if restart_from == 0
     #-----------
     @parallel UpdateDensity( ρ, ρr, βc, P, Pr, dρ, Pt, dPr )
     @parallel InterpV2Ce( ηc, ηv )
+    @parallel (1:size(ηc,2), 1:size(ηc,3)) bc_x!(ηc)
+    @parallel (1:size(ηc,1), 1:size(ηc,3)) bc_y!(ηc)
+    @parallel (1:size(ηc,1), 1:size(ηc,2)) bc_z!(ηc)
     @parallel InterpV2C( ηv, ηc, 0 )
  else# Breakpoint business
     fname = @sprintf("./Breakpoint%05d.h5", restart_from)
@@ -312,11 +315,11 @@ end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
         Gv[i,j,k] = Gr*(1.0 + 0.05*(0.5-rand()))
         βv[i,j,k] = βr/1.2
-        ηv[i,j,k] = ηr/100 
+        ηv[i,j,k] = ηr/100
         if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
         if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.2  end 
         if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
-        if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/100.0 end  
+        if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/1000.0 end  
     end
     # Centroids
     if i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)

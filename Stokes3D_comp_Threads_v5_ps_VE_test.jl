@@ -23,15 +23,15 @@ write_out    = 1
 write_nout   = 10
 restart_from = 0
 #-----------
-nt            = 1
-Δtr           = 2.5e11
+nt            = 20
+Δtr           = 2.5e11/10
 ε_BG          = 1.0e-14
 ∇V_BG         = 0.0e-14
 r             = 1e-3*2/3
 βr            = 1.0e-10
 Gr            = 5e10
 ρr            = 3000
-ηr            = 1e25
+ηr            = 1e22
 Lx,  Ly,  Lz  =  1.0e-2,  (3.0/32)*1e-2,  1.0e-2 
 ncx, ncy, ncz = n*32, 2, n*32
 BCtype        = :PureShear_xz
@@ -92,6 +92,11 @@ xce = LinRange(-Lx/2-Δx/2, Lx/2+Δx/2, ncx+2)
 yce = LinRange(-Ly/2-Δy/2, Ly/2+Δy/2, ncy+2)
 zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 #-----------
+
+τii_vec = zeros(nt)
+τii_anal_vec = zeros(nt)
+t_vec   = zeros(nt)
+
 Ft    = @zeros(ncx+0, ncy+0, ncz+0)
 Fs    = @zeros(ncx+0, ncy+0, ncz+0)
 Y     = @zeros(ncx+0, ncy+0, ncz+0)
@@ -185,8 +190,9 @@ Reopt  = 0.5*pi
 cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 λrel   = .5  
-tol    = 1e-6
+tol    = 1e-5
 anim   = Animation()
+t      = 0.0
 #-----------
 for it=restart_from+1:nt
     #----------- Adaptive Δt
@@ -212,7 +218,7 @@ for it=restart_from+1:nt
     λxz  .= 0.0
     λyz  .= 0.0
     ##-----------
-    for iter=1:1#niter
+    for iter=1:niter
         @parallel (1:size(Vy,2), 1:size(Vy,3)) bc_x!(Vy)
         @parallel (1:size(Vz,2), 1:size(Vz,3)) bc_x!(Vz)
         @parallel (1:size(Vx,1), 1:size(Vx,3)) bc_y!(Vx)
@@ -241,6 +247,12 @@ for it=restart_from+1:nt
         end
     end
     P .= P1
+
+    t += Δt
+    τii_anal_vec[it] = 2.0*abs(ε_BG)*ηr*(1.0-exp(-t*Gr/ηr))
+    τii_vec[it] = mean(τii)
+    t_vec[it]   = t
+
     #-----------
     @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
@@ -260,9 +272,9 @@ for it=restart_from+1:nt
     Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
     Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
     p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    p3  = heatmap(xv.*Lc*1e2, zce[2:end-1].*Lc*1e2, Fx[:, (size(Fx,2))÷2, :]', title="Fx", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    # p3  = heatmap(xv.*Lc*1e2, zce[2:end-1].*Lc*1e2, Fx[:, (size(Fx,2))÷2, :]', title="Fx", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
 
-    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, ηxz[:, (size(ηxz,2))÷2, :]'.*σc./1e9, title="Gv [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
@@ -272,12 +284,14 @@ for it=restart_from+1:nt
     # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
     p2  = plot(P_1d./1e9, ρ_1d,legend=false)
     p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
-    p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
-    p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
+    # p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
+    # p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
+    p4 = plot(t_vec[1:it].*tc, τii_anal_vec[1:it].*σc)
+    p4 = scatter!(t_vec[1:it].*tc, τii_vec[1:it].*σc)
     p   = plot(p1,p2,p3,p4)
     frame(anim)
     display(p)
-    display(ηv[:, (size(ηv,2))÷2, :]'*μc)
+    # display(ηv[:, (size(ηv,2))÷2, :]'*μc)
     # display(ηc[:, (size(ηc,2))÷2, :]'*μc)
     # Breakpoint business
     if write_out==1 && (it==1 || mod(it, write_nout)==0)
@@ -319,7 +333,7 @@ end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
         Gv[i,j,k] = Gr#*(1.0 + 0.05*(0.5-rand()))
         βv[i,j,k] = βr/1.2
-        ηv[i,j,k] = ηr/100 
+        ηv[i,j,k] = ηr 
         # if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
         # if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.2  end 
         # if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
@@ -364,7 +378,7 @@ end
     if type == 1 && i<=size(ηc,1) && j<=size(ηc,2) && k<=size(ηc,3)
         a  = 1.0/8.0*( 1.0/ηv[i,  j,  k] + 1.0/ηv[i+1,j,k  ] + 1.0/ηv[i,j+1,k  ] + 1.0/ηv[i,  j,k+1  ] )
         a += 1.0/8.0*( 1.0/ηv[i+1,j+1,k] + 1.0/ηv[i+1,j,k+1] + 1.0/ηv[i,j+1,k+1] + 1.0/ηv[i+1,j+1,k+1] )
-        ηc[i,j,k] = 1.0
+        ηc[i,j,k] = 1.0/a
     end
     return nothing
 end
@@ -494,15 +508,15 @@ end
         η_ve = 1.0 / ( 1.0/η + 1.0/η_e )
         # @printf("%2.2e ", η_ve)
         # Trial deviatoric normal stress
-        τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i+1,j+1,k+1] + 0τxx0[i+1,j+1,k+1]/(2η_e) )
-        τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i+1,j+1,k+1] + 0τyy0[i+1,j+1,k+1]/(2η_e) )
-        τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i+1,j+1,k+1] + 0τzz0[i+1,j+1,k+1]/(2η_e) )
-        if i==1 && j==2 && k==2
-            @printf("TxxW = %2.2e %2.2e %2.2e %2.2e\n", τxx[i+1,j+1,k+1], εxx[i+1,j+1,k+1], G, η)
-        end
-        if i==2 && j==2 && k==2
-            @printf("TxxW = %2.2e %2.2e %2.2e %2.2e\n", τxx[i+1,j+1,k+1], εxx[i+1,j+1,k+1], G, η)
-        end
+        τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i+1,j+1,k+1] + τxx0[i+1,j+1,k+1]/(2η_e) )
+        τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i+1,j+1,k+1] + τyy0[i+1,j+1,k+1]/(2η_e) )
+        τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i+1,j+1,k+1] + τzz0[i+1,j+1,k+1]/(2η_e) )
+        # if i==1 && j==2 && k==2
+        #     @printf("TxxW = %2.2e %2.2e %2.2e %2.2e\n", τxx[i+1,j+1,k+1], εxx[i+1,j+1,k+1], G, η)
+        # end
+        # if i==2 && j==2 && k==2
+        #     @printf("TxxW = %2.2e %2.2e %2.2e %2.2e\n", τxx[i+1,j+1,k+1], εxx[i+1,j+1,k+1], G, η)
+        # end
         # Trial deviatoric shear stress
         εxyc  = 0.25*( εxy[i,j,k+1] +  εxy[i+1,j,k+1] +  εxy[i,j+1,k+1] +  εxy[i+1,j+1,k+1])
         εxzc  = 0.25*( εxz[i,j+1,k] +  εxz[i+1,j+1,k] +  εxz[i,j+1,k+1] +  εxz[i+1,j+1,k+1])

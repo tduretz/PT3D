@@ -18,8 +18,8 @@ else
 end
 
 function main( n )
-nt            = 500
-Δtr           = 5e11
+nt            = 80
+Δtr           = 2.5e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
 r             = 1e-3*2/3
@@ -46,7 +46,7 @@ P_1d   = LinRange( Pmin, Pmax, 200 )
 ϕ      = 20.0
 ψ      = 5.0
 C      = 1e7
-η_vp   = 1e20
+η_vp   = 1e22
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
 #-----------
 dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
@@ -181,9 +181,10 @@ nout   = 500
 Reopt  = 0.5*pi
 cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
-λrel   = 0.5  
+λrel   = 1.0  
 tol    = 1e-6
 η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
+anim   = Animation()
 ##########
 for it=1:nt
     ###
@@ -265,11 +266,13 @@ for it=1:nt
     p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
     p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
     p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
+    frame(anim)
     display(plot(p1,p2,p3,p4))
     # p1 = plot(P_1d./1e9, Δt_1d,legend=false)
     # p1 = plot!(P_1d2*σc./1e9, Δt_1d2*tc,legend=false)
     # display(p1)
 end
+gif(anim, "QuartzCoesiteJulia.gif", fps = 6)
 #-----------
 return nothing
 end
@@ -500,15 +503,19 @@ end
 
 @parallel_indices (i,j,k) function ShearStressFromCentroids( τxy, τxz, τyz, τxyc, τxzc, τyzc )
     if i<=size(τxy,1) && j<=size(τxy,2) && k<=size(τxy,3)
-        # if i>1 && j>1 && i<=size(τxy,1)-1 && j<=size(τxy,2)-1
+        if i>1 && j>1 && i<=size(τxy,1)-1 && j<=size(τxy,2)-1
             τxy[i,j,k] = 0.25*(τxyc[i,j,k+1] + τxyc[i+1,j,k+1] + τxyc[i,j+1,k+1] + τxyc[i+1,j+1,k+1])
-        # end
+        end
     end
     if i<=size(τxz,1) && j<=size(τxz,2) && k<=size(τxz,3)
-        τxz[i,j,k] = 0.25*(τxzc[i,j+1,k] + τxzc[i+1,j+1,k] + τxzc[i,j+1,k+1] + τxzc[i+1,j+1,k+1])
+        if i>1 && k>1 && i<=size(τxz,1)-1 && j<=size(τxz,3)-1
+            τxz[i,j,k] = 0.25*(τxzc[i,j+1,k] + τxzc[i+1,j+1,k] + τxzc[i,j+1,k+1] + τxzc[i+1,j+1,k+1])
+        end
     end
     if i<=size(τyz,1) && j<=size(τyz,2) && k<=size(τyz,3)
-        τyz[i,j,k] = 0.25*(τyzc[i+1,j,k] + τyzc[i+1,j+1,k] + τyzc[i+1,j,k+1] + τyzc[i+1,j+1,k+1])
+        if j>1 && k>1 && j<=size(τyz,2)-1 && j<=size(τyz,3)-1
+            τyz[i,j,k] = 0.25*(τyzc[i+1,j,k] + τyzc[i+1,j+1,k] + τyzc[i+1,j,k+1] + τyzc[i+1,j+1,k+1])
+        end
     end
     return nothing
 end

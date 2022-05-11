@@ -23,10 +23,10 @@ write_out    = 1
 write_nout   = 10
 restart_from = 0
 #-----------
-nt            = 101
+nt            = 1
 Δtr           = 2.5e11
-ε_BG          = 0.0e-16
-∇V_BG         = 1.0e-14
+ε_BG          = 1.0e-14
+∇V_BG         = 0.0e-14
 r             = 1e-3*2/3
 βr            = 1.0e-10
 Gr            = 5e10
@@ -41,16 +41,16 @@ dPr           = 5e7
 Pt            = 3.5e9
 dρinc         = 300.0
 Ptens         = -2e7
+ϕ             = 20.0
+ψ             = 5.0
+C             = 1e70
+η_vp          = 1e22
 #----------- for the 1D plot (post-processing only!) 
 Pmin   = 1e9
 Pmax   = Pini 
 P_1d   = LinRange( Pmin, Pmax, 200 )
 ρr_1d  = ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
 ρ_1d   = ρr_1d .*exp.(βr.*(P_1d.-Pr))
-ϕ      = 20.0
-ψ      = 5.0
-C      = 1e7
-η_vp   = 1e22
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
 #-----------
 dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
@@ -148,7 +148,10 @@ if restart_from == 0
     #-----------
     @parallel UpdateDensity( ρ, ρr, βc, P, Pr, dρ, Pt, dPr )
     @parallel InterpV2Ce( ηc, ηv )
-    @parallel InterpV2C( ηv, ηc, 0 )
+    @parallel (1:size(ηc,2), 1:size(ηc,3)) bc_x!(ηc)
+    @parallel (1:size(ηc,1), 1:size(ηc,3)) bc_y!(ηc)
+    @parallel (1:size(ηc,1), 1:size(ηc,2)) bc_z!(ηc)
+    @parallel InterpV2C( ηv, ηc, 1 )
  else# Breakpoint business
     fname = @sprintf("./Breakpoint%05d.h5", restart_from)
     @printf("Reading file %s\n", fname)
@@ -188,7 +191,7 @@ anim   = Animation()
 for it=restart_from+1:nt
     #----------- Adaptive Δt
     dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
-    Δt     = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
+    Δt     = Δtr#*(1.0 .-  dρdP ./ max_dρdP./1.1)
     #----------- Adaptive PT parameters
     η_ve   = 1.0/(1.0/maximum(ηv) + 1.0/(Gr*Δt)) 
     Δτ     = ρnum*min(Δx, Δz).^2 / η_ve /4.1  
@@ -209,7 +212,7 @@ for it=restart_from+1:nt
     λxz  .= 0.0
     λyz  .= 0.0
     ##-----------
-    for iter=1:niter
+    for iter=1:1#niter
         @parallel (1:size(Vy,2), 1:size(Vy,3)) bc_x!(Vy)
         @parallel (1:size(Vz,2), 1:size(Vz,3)) bc_x!(Vz)
         @parallel (1:size(Vx,1), 1:size(Vx,3)) bc_y!(Vx)
@@ -257,7 +260,9 @@ for it=restart_from+1:nt
     Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
     Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
     p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    p3  = heatmap(xv.*Lc*1e2, zce[2:end-1].*Lc*1e2, Fx[:, (size(Fx,2))÷2, :]', title="Fx", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+
+    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, ηxz[:, (size(ηxz,2))÷2, :]'.*σc./1e9, title="Gv [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
@@ -272,6 +277,8 @@ for it=restart_from+1:nt
     p   = plot(p1,p2,p3,p4)
     frame(anim)
     display(p)
+    display(ηv[:, (size(ηv,2))÷2, :]'*μc)
+    # display(ηc[:, (size(ηc,2))÷2, :]'*μc)
     # Breakpoint business
     if write_out==1 && (it==1 || mod(it, write_nout)==0)
         fname = @sprintf("./Breakpoint%05d.h5", it)
@@ -310,17 +317,17 @@ end
     if j<=size(Vy,2) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
     if k<=size(Vz,3) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
-        Gv[i,j,k] = Gr*(1.0 + 0.05*(0.5-rand()))
+        Gv[i,j,k] = Gr#*(1.0 + 0.05*(0.5-rand()))
         βv[i,j,k] = βr/1.2
         ηv[i,j,k] = ηr/100 
-        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
-        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.2  end 
-        if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
-        if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/100.0 end  
+        # if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
+        # if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.2  end 
+        # if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
+        # if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/100.0 end  
     end
     # Centroids
     if i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)
-        if ((xce[i+1]-0.1)^2/(ari*ri)^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  dρ[i,j,k] = dρinc  end  
+        # if ((xce[i+1]-0.1)^2/(ari*ri)^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  dρ[i,j,k] = dρinc  end  
     end
     return nothing
 end
@@ -357,7 +364,7 @@ end
     if type == 1 && i<=size(ηc,1) && j<=size(ηc,2) && k<=size(ηc,3)
         a  = 1.0/8.0*( 1.0/ηv[i,  j,  k] + 1.0/ηv[i+1,j,k  ] + 1.0/ηv[i,j+1,k  ] + 1.0/ηv[i,  j,k+1  ] )
         a += 1.0/8.0*( 1.0/ηv[i+1,j+1,k] + 1.0/ηv[i+1,j,k+1] + 1.0/ηv[i,j+1,k+1] + 1.0/ηv[i+1,j+1,k+1] )
-        ηc[i,j,k] = 1.0/a
+        ηc[i,j,k] = 1.0
     end
     return nothing
 end
@@ -383,9 +390,9 @@ end
         dVyΔy      = (Vy[i+1,j+1,k+1] - Vy[i+1,j,k+1]) / Δy
         dVzΔz      = (Vz[i+1,j+1,k+1] - Vz[i+1,j+1,k]) / Δz
         ∇V[i+1,j+1,k+1]  = dVxΔx + dVyΔy + dVzΔz
-        εxx[i+1,j+1,k+1] = dVxΔx - 1//3 * ∇V[i+1,j+1,k+1]
-        εyy[i+1,j+1,k+1] = dVyΔy - 1//3 * ∇V[i+1,j+1,k+1]
-        εzz[i+1,j+1,k+1] = dVzΔz - 1//3 * ∇V[i+1,j+1,k+1]
+        εxx[i+1,j+1,k+1] = dVxΔx# - 1//3 * ∇V[i+1,j+1,k+1]
+        εyy[i+1,j+1,k+1] = dVyΔy# - 1//3 * ∇V[i+1,j+1,k+1]
+        εzz[i+1,j+1,k+1] = dVzΔz# - 1//3 * ∇V[i+1,j+1,k+1]
     end
     if i<=size(εxy,1) && j<=size(εxy,2) && k<=size(εxy,3)-2
         dVxΔy      = (Vx[i,j+1,k+1] - Vx[i,j,k+1]) / Δy 
@@ -408,30 +415,33 @@ end
 @parallel_indices (i,j,k) function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
     if i<=size(Fx,1) && j<=size(Fx,2) && k<=size(Fx,3)
         if i>1 && i<size(Fx,1) # avoid Dirichlets
+            # if i==2
+            #     @printf("TxxW = %2.2e --- TxxE = %2.2e\n", τxx[i,j+1,k+1], τxx[i+1,j+1,k+1])
+            # end
             Fx[i,j,k]  = (τxx[i+1,j+1,k+1] - τxx[i,j+1,k+1]) / Δx
-            Fx[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i,j+1,k+1]) / Δx
-            Fx[i,j,k] += (τxy[i,j+1,k+1] - τxy[i,j,k+1]) / Δy
-            Fx[i,j,k] += (τxz[i,j+1,k+1] - τxz[i,j+1,k]) / Δz
+            # Fx[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i,j+1,k+1]) / Δx
+            # Fx[i,j,k] += (τxy[i,j+1,k+1] - τxy[i,j,k+1]) / Δy
+            # Fx[i,j,k] += (τxz[i,j+1,k+1] - τxz[i,j+1,k]) / Δz
         end
     end
     if i<=size(Fy,1) && j<=size(Fy,2) && k<=size(Fy,3)
         if j>1 && j<size(Fy,2) # avoid Dirichlets
             Fy[i,j,k]  = (τyy[i+1,j+1,k+1] - τyy[i+1,j,k+1]) / Δy
-            Fy[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j,k+1]) / Δy
-            Fy[i,j,k] += (τxy[i+1,j,k+1] - τxy[i,j,k+1]) / Δx
-            Fy[i,j,k] += (τyz[i+1,j,k+1] - τyz[i+1,j,k]) / Δz
+            # Fy[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j,k+1]) / Δy
+            # Fy[i,j,k] += (τxy[i+1,j,k+1] - τxy[i,j,k+1]) / Δx
+            # Fy[i,j,k] += (τyz[i+1,j,k+1] - τyz[i+1,j,k]) / Δz
         end
     end
     if i<=size(Fz,1) && j<=size(Fz,2) && k<=size(Fz,3)
         if k>1 && k<size(Fz,3) # avoid Dirichlets
             Fz[i,j,k]  = (τzz[i+1,j+1,k+1] - τzz[i+1,j+1,k]) / Δz
-            Fz[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j+1,k]) / Δz
-            Fz[i,j,k] += (τxz[i+1,j+1,k] - τxz[i,j+1,k]) / Δx
-            Fz[i,j,k] += (τyz[i+1,j+1,k] - τyz[i+1,j,k]) / Δy
+            # Fz[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j+1,k]) / Δz
+            # Fz[i,j,k] += (τxz[i+1,j+1,k] - τxz[i,j+1,k]) / Δx
+            # Fz[i,j,k] += (τyz[i+1,j+1,k] - τyz[i+1,j,k]) / Δy
         end
     end
     if i<=size(Fp,1) && j<=size(Fp,2) && k<=size(Fp,3)
-        Fp[i,j,k] = -∇V[i+1,j+1,k+1] - (log( ρ[i,j,k] ) - log( ρ0[i,j,k])) / Δt
+        Fp[i,j,k] = -∇V[i+1,j+1,k+1]# - (log( ρ[i,j,k] ) - log( ρ0[i,j,k])) / Δt
     end
     return nothing
 end
@@ -484,9 +494,15 @@ end
         η_ve = 1.0 / ( 1.0/η + 1.0/η_e )
         # @printf("%2.2e ", η_ve)
         # Trial deviatoric normal stress
-        τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i+1,j+1,k+1] + τxx0[i+1,j+1,k+1]/(2η_e) )
-        τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i+1,j+1,k+1] + τyy0[i+1,j+1,k+1]/(2η_e) )
-        τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i+1,j+1,k+1] + τzz0[i+1,j+1,k+1]/(2η_e) )
+        τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i+1,j+1,k+1] + 0τxx0[i+1,j+1,k+1]/(2η_e) )
+        τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i+1,j+1,k+1] + 0τyy0[i+1,j+1,k+1]/(2η_e) )
+        τzz[i+1,j+1,k+1] = 2η_ve*( εzz[i+1,j+1,k+1] + 0τzz0[i+1,j+1,k+1]/(2η_e) )
+        if i==1 && j==2 && k==2
+            @printf("TxxW = %2.2e %2.2e %2.2e %2.2e\n", τxx[i+1,j+1,k+1], εxx[i+1,j+1,k+1], G, η)
+        end
+        if i==2 && j==2 && k==2
+            @printf("TxxW = %2.2e %2.2e %2.2e %2.2e\n", τxx[i+1,j+1,k+1], εxx[i+1,j+1,k+1], G, η)
+        end
         # Trial deviatoric shear stress
         εxyc  = 0.25*( εxy[i,j,k+1] +  εxy[i+1,j,k+1] +  εxy[i,j+1,k+1] +  εxy[i+1,j+1,k+1])
         εxzc  = 0.25*( εxz[i,j+1,k] +  εxz[i+1,j+1,k] +  εxz[i,j+1,k+1] +  εxz[i+1,j+1,k+1])

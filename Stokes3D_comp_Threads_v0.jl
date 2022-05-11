@@ -4,7 +4,7 @@ import LinearAlgebra: norm
 
 function main( n )
 nt            = 400
-Δt            = 5e10
+Δtr           = 1e11
 ε_BG          = 1.0e-16
 ∇V_BG         = 1.0e-14
 r             = 1e-3
@@ -31,6 +31,11 @@ P_1d   = LinRange( Pmin, Pmax, 200 )
 ϕ      = 20.0
 C      = 1e7
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
+#-----------
+dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
+max_dρdP = maximum(dρdP)
+Δt_1d    = Δtr*(1.0 .- dρdP ./ max_dρdP ./1.5)
+@printf("min Δt = %2.2e --- max Δt = %2.2e\n", minimum(Δt_1d), maximum(Δt_1d))
 # # LP
 # Pini   = 3e8
 # Pr     = Pini
@@ -65,12 +70,14 @@ Gr     /= σc
 Pr     /= σc
 Pini   /= σc
 ηr     /= μc
-Δt     /= tc
+Δtr    /= tc
 dPr    /= σc
 Pt     /= σc
 dρinc  /= ρc
 Ptens  /= σc
 C      /= σc
+dρinc  /= ρc
+max_dρdP /= (ρc/σc)
 #-----------
 Ft    = zeros(ncx+0, ncy+0, ncz+0)
 Fs    = zeros(ncx+0, ncy+0, ncz+0)
@@ -149,14 +156,19 @@ Reopt  = 1*pi
 cfl    = 0.5
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 tol    = 1e-8
-η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δt))
+η_ve   = 1.0/(1.0/maximum(ηc) + 1.0/(Gr*Δtr))
 Δτ     = ρnum*Δy^2 / η_ve /6.1 * cfl
-ΚΔτ    = cfl * Δt/βr * Δx / Lx  * 10.0 
+ΚΔτ    = cfl * Δtr/βr * Δx / Lx  * 10.0 
 @printf("ρnum = %2.2e, Δτ = %2.2e, ΚΔτ = %2.2e %2.2e\n", ρnum, Δτ, ΚΔτ, maximum(ηc))
 ##########
 for it=1:nt
     ###
-    @printf("#### Time step %04d ####\n", it)
+    # dρdP  = 0.5641895835477563*dρinc.*exp.( .-((P[1].-Pt)./dPr).^2 ) ./ dPr 
+    # Δt    = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.5)
+    Δt = Δtr
+    @printf("##########################################\n")
+    @printf("#### Time step %04d --- Δt = %2.2e ####\n", it, Δt*tc)
+    @printf("##########################################\n")
     P0   .= P
     ρ0   .= ρ
     τxx0 .= τxx
@@ -219,6 +231,7 @@ for it=1:nt
     p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
     p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
     display(plot(p1,p2,p3,p4))
+    # display(plot(P_1d./1e9, Δt_1d,legend=false))
 end
 #-----------
 return nothing

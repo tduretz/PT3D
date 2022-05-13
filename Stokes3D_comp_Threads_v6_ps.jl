@@ -2,6 +2,7 @@
 # rheology on centers ONLY
 # viscosity with extended stencil (useful?)
 # dt for 2D
+# simple circular setup
 using  Printf, Plots, HDF5
 import Statistics: mean
 import LinearAlgebra: norm
@@ -22,35 +23,35 @@ function main( n )
 write_out    = 1
 write_nout   = 10
 restart_from = 0
-#-----------
-nt            = 20
-Δtr           = 2.5e11/10
-ε_BG          = 1.0e-14
-∇V_BG         = 0.0e-14
-r             = 1e-3*2/3
-βr            = 1.0e-10
-Gr            = 5e10
-ρr            = 3000
+#----------- BENCHMARK 
+nt            = 1
+Δtr           = 0.125e11
+ε_BG          = 0.0e-16
+∇V_BG         = 1.0e-14
+r             = 2e-3
+βr            = 1.0/(17e10)
+Gr            = 9e10
+ρr            = 3600
 ηr            = 1e22
-Lx,  Ly,  Lz  =  1.0e-2,  (3.0/32)*1e-2,  1.0e-2 
+Lx,  Ly,  Lz  =  5e-3,  (3.0/32)*5e-3,  5e-3 
 ncx, ncy, ncz = n*32, 2, n*32
 BCtype        = :PureShear_xz
-Pini          = 4e9
+Pini          = 3.45e9
 Pr            = Pini
 dPr           = 5e7
-Pt            = 3.5e9
+Pt            = 2.77e9
 dρinc         = 300.0
 Ptens         = -2e7
-ϕ             = 20.0
-ψ             = 5.0
-C             = 1e70
-η_vp          = 1e22
 #----------- for the 1D plot (post-processing only!) 
 Pmin   = 1e9
 Pmax   = Pini 
 P_1d   = LinRange( Pmin, Pmax, 200 )
-ρr_1d  = ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
+ρr_1d  = 0.8056ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
 ρ_1d   = ρr_1d .*exp.(βr.*(P_1d.-Pr))
+ϕ      = 20.0
+ψ      = 5.0
+C      = 1e7
+η_vp   = 1e18
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
 #-----------
 dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
@@ -69,6 +70,7 @@ Vc = Lc/tc
 Lx,  Ly,  Lz = Lx/Lc,  Ly/Lc,  Lz/Lc
 ε_BG, ∇V_BG  = ε_BG/εc, ∇V_BG/εc 
 r        /= Lc
+println(r)
 βr       /= (1.0/σc)
 Gr       /= σc
 ρr       /= ρc
@@ -92,11 +94,6 @@ xce = LinRange(-Lx/2-Δx/2, Lx/2+Δx/2, ncx+2)
 yce = LinRange(-Ly/2-Δy/2, Ly/2+Δy/2, ncy+2)
 zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
 #-----------
-
-τii_vec = zeros(nt)
-τii_anal_vec = zeros(nt)
-t_vec   = zeros(nt)
-
 Ft    = @zeros(ncx+0, ncy+0, ncz+0)
 Fs    = @zeros(ncx+0, ncy+0, ncz+0)
 Y     = @zeros(ncx+0, ncy+0, ncz+0)
@@ -104,6 +101,7 @@ P0    = @zeros(ncx+2, ncy+2, ncz+2)
 P1    = @zeros(ncx+2, ncy+2, ncz+2)
 dρ    = @zeros(ncx+0, ncy+0, ncz+0)
 ρ0    = @zeros(ncx+0, ncy+0, ncz+0)
+ρref  = @zeros(ncx+0, ncy+0, ncz+0)
 βc    = @zeros(ncx+0, ncy+0, ncz+0)
 λc    = @zeros(ncx+0, ncy+0, ncz+0)
 λxy   = @zeros(ncx+1, ncy+1, ncz+2)
@@ -148,20 +146,21 @@ if restart_from == 0
     dVydτ = @zeros(ncx+0, ncy+1, ncz+0)
     dVzdτ = @zeros(ncx+0, ncy+0, ncz+1)
     #-----------
-    @parallel InitialCondition( Vx, Vy, Vz, ηv, Gv, βv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, βc, βr, Gr )
+    @parallel InitialCondition( Vx, Vy, Vz, ηv, Gv, βv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, βc, βr, Gr, ρref, ρr )
     P .= Pini
     #-----------
-    @parallel UpdateDensity( ρ, ρr, βc, P, Pr, dρ, Pt, dPr )
+    @parallel UpdateDensity( ρ, ρref, βc, P, Pr, dρ, Pt, dPr )
     @parallel InterpV2Ce( ηc, ηv )
     @parallel (1:size(ηc,2), 1:size(ηc,3)) bc_x!(ηc)
     @parallel (1:size(ηc,1), 1:size(ηc,3)) bc_y!(ηc)
     @parallel (1:size(ηc,1), 1:size(ηc,2)) bc_z!(ηc)
-    @parallel InterpV2C( ηv, ηc, 1 )
+    @parallel InterpV2C( ηv, ηc, 0 )
  else# Breakpoint business
     fname = @sprintf("./Breakpoint%05d.h5", restart_from)
     @printf("Reading file %s\n", fname)
     h5open(fname, "r") do file
         dρ    = read(file, "drho") 
+        ρref  = read(file, "rho_ref")
         ηv    = read(file, "ev") 
         Gv    = read(file, "Gv") 
         βv    = read(file, "Bv") 
@@ -190,14 +189,13 @@ Reopt  = 0.5*pi
 cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 λrel   = .5  
-tol    = 1e-5
+tol    = 1e-6
 anim   = Animation()
-t      = 0.0
 #-----------
 for it=restart_from+1:nt
     #----------- Adaptive Δt
     dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
-    Δt     = Δtr#*(1.0 .-  dρdP ./ max_dρdP./1.1)
+    Δt     = Δtr*(1.0 .-  dρdP ./ max_dρdP./1.1)
     #----------- Adaptive PT parameters
     η_ve   = 1.0/(1.0/maximum(ηv) + 1.0/(Gr*Δt)) 
     Δτ     = ρnum*min(Δx, Δz).^2 / η_ve /4.1  
@@ -225,7 +223,7 @@ for it=restart_from+1:nt
         @parallel (1:size(Vz,1), 1:size(Vz,3)) bc_y!(Vz)
         @parallel (1:size(Vx,1), 1:size(Vx,2)) bc_z!(Vx)
         @parallel (1:size(Vy,1), 1:size(Vy,2)) bc_z!(Vy)
-        @parallel UpdateDensity( ρ, ρr, βc, P, Pr, dρ, Pt, dPr )
+        @parallel UpdateDensity( ρ, ρref, βc, P, Pr, dρ, Pt, dPr )
         @parallel ComputeStrainRates( ∇V, εxx, εyy, εzz, εxy, εxz, εyz, Vx, Vy, Vz, Δx, Δy, Δz )
         @parallel StressEverywhere( P1, P, τxx, τyy, τzz, τxy, τxz, τyz, εxx, εyy, εzz, εxy, εxz, εyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, τii, ηv, βv, Gv, Δt, λc, λxy, λxz, λyz, C, cosd(ϕ), sind(ϕ), sind(ψ), η_vp, λrel )
         @parallel ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P1, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
@@ -247,11 +245,6 @@ for it=restart_from+1:nt
         end
     end
     P .= P1
-
-    t += Δt
-    τii_anal_vec[it] = 2.0*abs(ε_BG)*ηr*(1.0-exp(-t*Gr/ηr))
-    τii_vec[it] = mean(τii)
-    t_vec[it]   = t
     #-----------
     @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
@@ -261,43 +254,41 @@ for it=restart_from+1:nt
     @printf("ρ0  : min = %2.4e --- max = %2.4e\n", minimum( ρ0)*ρc, maximum( ρ0)*ρc)
     @printf("ρ   : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
     #-----------  
-    Pin = P[2:end-1,2:end-1,2:end-1]
-    Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
-    Ft .= Ptens  .- Pin
-    @printf("max Ft = %2.2e\n", maximum(Ft))
-    Y .= 0
-    Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.>Ft] .= 1
-    Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.<Ft] .= 2
-    Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
-    Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
-    p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    # p3  = heatmap(xv.*Lc*1e2, zce[2:end-1].*Lc*1e2, Fx[:, (size(Fx,2))÷2, :]', title="Fx", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-
-    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    Pin  = P[2:end-1,2:end-1,2:end-1]
+    ∇Vin = ∇V[2:end-1,2:end-1,2:end-1]
+    # Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
+    # Ft .= Ptens  .- Pin
+    # @printf("max Ft = %2.2e\n", maximum(Ft))
+    # Y .= 0
+    # Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.>Ft] .= 1
+    # Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.<Ft] .= 2
+    # Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
+    # Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
+    # p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, ∇Vin[:, (size(∇Vin,2))÷2, :]'.*εc, title="∇V [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+    p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, ρ[:, (size(ρ,2))÷2, :]'.*ρc, title="ρ [kg/m³]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, ηxz[:, (size(ηxz,2))÷2, :]'.*σc./1e9, title="Gv [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
     # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, λc[:, (size(λc,2))÷2, :]'.*(1.0/tc), title="λ [1/s]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, λxz[:, (size(λxz,2))÷2, :]'.*(1.0/tc), title="λxz [1/s]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, λc[:, (size(λc,2))÷2, :]'.*(1.0/tc), title="λ [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+    # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, λxz[:, (size(λxz,2))÷2, :]'.*(1.0/tc), title="λxz [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
     # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
     p2  = plot(P_1d./1e9, ρ_1d,legend=false)
     p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
-    # p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
-    # p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
-    p4 = plot(t_vec[1:it].*tc, τii_anal_vec[1:it].*σc)
-    p4 = scatter!(t_vec[1:it].*tc, τii_vec[1:it].*σc)
+    p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
+    p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
     p   = plot(p1,p2,p3,p4)
     frame(anim)
     display(p)
-    # display(ηv[:, (size(ηv,2))÷2, :]'*μc)
-    # display(ηc[:, (size(ηc,2))÷2, :]'*μc)
     # Breakpoint business
     if write_out==1 && (it==1 || mod(it, write_nout)==0)
         fname = @sprintf("./Breakpoint%05d.h5", it)
         @printf("Writing file %s\n", fname)
         h5open(fname, "w") do file
             write(file, "drho", dρ) 
+            write(file, "rho_ref", ρref)
             write(file, "ev", ηv) 
             write(file, "Gv", Gv) 
             write(file, "Bv", βv) 
@@ -323,31 +314,36 @@ gif(anim, "QuartzCoesiteJulia.gif", fps = 6)
 return nothing
 end
 
-@parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, βv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, βc, βr, Gr )
-    ri, ro, ar, ari = r, 4r, 1.6, 1.3
+@parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, βv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, βc, βr, Gr, ρref, ρr )
+    ri, ro, ar, ari = 0.25*r, r, 1.0, 1.0
     # Vertices
     if i<=size(Vx,1) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
     if j<=size(Vy,2) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
     if k<=size(Vz,3) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
         Gv[i,j,k] = Gr#*(1.0 + 0.05*(0.5-rand()))
-        βv[i,j,k] = βr/1.2
+        βv[i,j,k] = βr
         ηv[i,j,k] = ηr 
-        # if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr      end 
-        # if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.2  end 
-        # if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
-        # if ((xv[i]-0.1)^2/(ari*ri)^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/100.0 end  
+        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr*100     end 
+        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.4166  end 
+        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  Gv[i,j,k] = Gr*1.5  end 
+        # if ((xv[i]-0.0)^2/(ari*ri)^2 + (zv[k]-0.00)^2/ri^2) < 1.0  βv[i,j,k] = βr*1.4166 end  
+        if ((xv[i]-0.0)^2/(ari*ri)^2 + (zv[k]-0.00)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
     end
     # Centroids
     if i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)
-        # if ((xce[i+1]-0.1)^2/(ari*ri)^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  dρ[i,j,k] = dρinc  end  
+        ρref[i,j,k] = ρr
+        if ((xce[i+1]-0.0)^2/(ari*ri)^2 + (zce[k+1]-0.00)^2/ri^2) < 1.0  
+            ρref[i,j,k] = 0.8056ρr
+            dρ[i,j,k]   = dρinc  
+        end  
     end
     return nothing
 end
 
-@parallel_indices (i,j,k) function UpdateDensity(ρ, ρr, βc, P, Pr, dρ, Pt, dPr)
-    if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρr1 = ρr - dρ[i,j,k] * 1//2 * erfc( (P[i+1,j+1,k+1]-Pt)/dPr )  end
-    if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρ[i,j,k] = ρr1 * exp( βc[i,j,k]*(P[i+1,j+1,k+1] - Pr) ) end
+@parallel_indices (i,j,k) function UpdateDensity(ρ, ρref, βc, P, Pr, dρ, Pt, dPr)
+    if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρref1    = ρref[i,j,k] - dρ[i,j,k] * 1//2 * erfc( (P[i+1,j+1,k+1]-Pt)/dPr )  end
+    if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρ[i,j,k] = ρref1 * exp( βc[i,j,k]*(P[i+1,j+1,k+1] - Pr) ) end
     return nothing
 end
 
@@ -403,9 +399,9 @@ end
         dVyΔy      = (Vy[i+1,j+1,k+1] - Vy[i+1,j,k+1]) / Δy
         dVzΔz      = (Vz[i+1,j+1,k+1] - Vz[i+1,j+1,k]) / Δz
         ∇V[i+1,j+1,k+1]  = dVxΔx + dVyΔy + dVzΔz
-        εxx[i+1,j+1,k+1] = dVxΔx# - 1//3 * ∇V[i+1,j+1,k+1]
-        εyy[i+1,j+1,k+1] = dVyΔy# - 1//3 * ∇V[i+1,j+1,k+1]
-        εzz[i+1,j+1,k+1] = dVzΔz# - 1//3 * ∇V[i+1,j+1,k+1]
+        εxx[i+1,j+1,k+1] = dVxΔx - 1//3 * ∇V[i+1,j+1,k+1]
+        εyy[i+1,j+1,k+1] = dVyΔy - 1//3 * ∇V[i+1,j+1,k+1]
+        εzz[i+1,j+1,k+1] = dVzΔz - 1//3 * ∇V[i+1,j+1,k+1]
     end
     if i<=size(εxy,1) && j<=size(εxy,2) && k<=size(εxy,3)-2
         dVxΔy      = (Vx[i,j+1,k+1] - Vx[i,j,k+1]) / Δy 
@@ -428,33 +424,30 @@ end
 @parallel_indices (i,j,k) function ComputeResiduals( Fx, Fy, Fz, Fp, τxx, τyy, τzz, τxy, τxz, τyz, P, ∇V, ρ, ρ0, Δx, Δy, Δz, Δt )
     if i<=size(Fx,1) && j<=size(Fx,2) && k<=size(Fx,3)
         if i>1 && i<size(Fx,1) # avoid Dirichlets
-            # if i==2
-            #     @printf("TxxW = %2.2e --- TxxE = %2.2e\n", τxx[i,j+1,k+1], τxx[i+1,j+1,k+1])
-            # end
             Fx[i,j,k]  = (τxx[i+1,j+1,k+1] - τxx[i,j+1,k+1]) / Δx
-            # Fx[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i,j+1,k+1]) / Δx
-            # Fx[i,j,k] += (τxy[i,j+1,k+1] - τxy[i,j,k+1]) / Δy
-            # Fx[i,j,k] += (τxz[i,j+1,k+1] - τxz[i,j+1,k]) / Δz
+            Fx[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i,j+1,k+1]) / Δx
+            Fx[i,j,k] += (τxy[i,j+1,k+1] - τxy[i,j,k+1]) / Δy
+            Fx[i,j,k] += (τxz[i,j+1,k+1] - τxz[i,j+1,k]) / Δz
         end
     end
     if i<=size(Fy,1) && j<=size(Fy,2) && k<=size(Fy,3)
         if j>1 && j<size(Fy,2) # avoid Dirichlets
             Fy[i,j,k]  = (τyy[i+1,j+1,k+1] - τyy[i+1,j,k+1]) / Δy
-            # Fy[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j,k+1]) / Δy
-            # Fy[i,j,k] += (τxy[i+1,j,k+1] - τxy[i,j,k+1]) / Δx
-            # Fy[i,j,k] += (τyz[i+1,j,k+1] - τyz[i+1,j,k]) / Δz
+            Fy[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j,k+1]) / Δy
+            Fy[i,j,k] += (τxy[i+1,j,k+1] - τxy[i,j,k+1]) / Δx
+            Fy[i,j,k] += (τyz[i+1,j,k+1] - τyz[i+1,j,k]) / Δz
         end
     end
     if i<=size(Fz,1) && j<=size(Fz,2) && k<=size(Fz,3)
         if k>1 && k<size(Fz,3) # avoid Dirichlets
             Fz[i,j,k]  = (τzz[i+1,j+1,k+1] - τzz[i+1,j+1,k]) / Δz
-            # Fz[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j+1,k]) / Δz
-            # Fz[i,j,k] += (τxz[i+1,j+1,k] - τxz[i,j+1,k]) / Δx
-            # Fz[i,j,k] += (τyz[i+1,j+1,k] - τyz[i+1,j,k]) / Δy
+            Fz[i,j,k] -= (  P[i+1,j+1,k+1] -   P[i+1,j+1,k]) / Δz
+            Fz[i,j,k] += (τxz[i+1,j+1,k] - τxz[i,j+1,k]) / Δx
+            Fz[i,j,k] += (τyz[i+1,j+1,k] - τyz[i+1,j,k]) / Δy
         end
     end
     if i<=size(Fp,1) && j<=size(Fp,2) && k<=size(Fp,3)
-        Fp[i,j,k] = -∇V[i+1,j+1,k+1]# - (log( ρ[i,j,k] ) - log( ρ0[i,j,k])) / Δt
+        Fp[i,j,k] = -∇V[i+1,j+1,k+1] - (log( ρ[i,j,k] ) - log( ρ0[i,j,k])) / Δt
     end
     return nothing
 end
@@ -498,11 +491,14 @@ end
         G  = 1.0/8.0*( Gv[i,  j,  k] + Gv[i+1,j,k  ] + Gv[i,j+1,k  ] + Gv[i,  j,k+1  ] )
         G += 1.0/8.0*( Gv[i+1,j+1,k] + Gv[i+1,j,k+1] + Gv[i,j+1,k+1] + Gv[i+1,j+1,k+1] )
         # Centroid compressibility
-        β  = 1.0/8.0*( βv[i,  j,  k] + βv[i+1,j,k  ] + βv[i,j+1,k  ] + βv[i,  j,k+1  ] )
-        β += 1.0/8.0*( βv[i+1,j+1,k] + βv[i+1,j,k+1] + βv[i,j+1,k+1] + βv[i+1,j+1,k+1] )
+        βc  = 1.0/8.0*( βv[i,  j,  k] + βv[i+1,j,k  ] + βv[i,j+1,k  ] + βv[i,  j,k+1  ] )
+        βc += 1.0/8.0*( βv[i+1,j+1,k] + βv[i+1,j,k+1] + βv[i,j+1,k+1] + βv[i+1,j+1,k+1] )
+        # Trial pressure
+        P1[i+1,j+1,k+1] = P[i+1,j+1,k+1]
         # Visco-elastic rheology
         η_e  = G*Δt
         η_ve = 1.0 / ( 1.0/η + 1.0/η_e )
+        # @printf("%2.2e ", η_ve)
         # Trial deviatoric normal stress
         τxx[i+1,j+1,k+1] = 2η_ve*( εxx[i+1,j+1,k+1] + τxx0[i+1,j+1,k+1]/(2η_e) )
         τyy[i+1,j+1,k+1] = 2η_ve*( εyy[i+1,j+1,k+1] + τyy0[i+1,j+1,k+1]/(2η_e) )
@@ -518,13 +514,11 @@ end
         τxzc  = 2η_ve*(εxzc + τxzc0/(2η_e) )
         τyzc  = 2η_ve*(εyzc + τyzc0/(2η_e) )
         # Plasticity
-        F, λ1, τii1, p1, τxx1, τyy1, τzz1, τxy1, τxz1, τyz1 = PlasticCorrection( λc[i,j,k], εxx[i+1,j+1,k+1], εyy[i+1,j+1,k+1], εzz[i+1,j+1,k+1], εxyc, εxzc, εyzc, τxx[i+1,j+1,k+1], τyy[i+1,j+1,k+1], τzz[i+1,j+1,k+1], τxyc, τxzc, τyzc, τxx0[i+1,j+1,k+1], τyy0[i+1,j+1,k+1], τzz0[i+1,j+1,k+1], τxyc0, τxzc0, τyzc0, P[i+1,j+1,k+1], C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
-        λc[i,j,k]        = λ1
-        τii[i,j,k]       = τii1
-        P1[i+1,j+1,k+1]  = p1
-        τxx[i+1,j+1,k+1] = τxx1
-        τyy[i+1,j+1,k+1] = τyy1
-        τzz[i+1,j+1,k+1] = τzz1
+        F, λ1, τii1 = PlasticCorrection( λc[i,j,k], εxx[i+1,j+1,k+1], εyy[i+1,j+1,k+1], εzz[i+1,j+1,k+1], εxyc, εxzc, εyzc, τxx[i+1,j+1,k+1], τyy[i+1,j+1,k+1], τzz[i+1,j+1,k+1], τxyc, τxzc, τyzc, τxx0[i+1,j+1,k+1], τyy0[i+1,j+1,k+1], τzz0[i+1,j+1,k+1], τxyc0, τxzc0, τyzc0, P[i+1,j+1,k+1], P1[i+1,j+1,k+1], C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, βc, Δt, λrel)
+        λc[i,j,k]   = λ1
+        τii[i,j,k]  = τii1
+        # if (i==25 && j==2 && k==66) 
+        # if F>0 @printf("Plastic, F_corr  = %2.2e\n", F) end
     end
     # XY
     if i<=size(τxy,1)-0 && j<=size(τxy,2)-0 && k>1 && k<=size(τxy,3)-1
@@ -533,9 +527,10 @@ end
         # Centroid shear modulus
         G     = 1.0/2.0*( Gv[i,  j,  k-1] + Gv[i,j,k] )
         # Centroid compressibility
-        β     = 1.0/2.0*( βv[i,  j,  k-1] + βv[i,j,k] )
+        βc     = 1.0/2.0*( βv[i,  j,  k-1] + βv[i,j,k] )
         # Trial pressure
         Pv    = 1.0/4.0*( P[i,  j,  k] + P[i+1,j,k] + P[i,j+1,k] + P[i+1,j+1,k ] )
+        Pv1   = Pv
         # Visco-elastic rheology
         η_e   = G*Δt
         η_ve  = 1.0 / ( 1.0/η + 1.0/η_e )
@@ -558,9 +553,8 @@ end
         τxzv       = 2η_ve*( εxzv       + τxzv0/(2η_e) )
         τyzv       = 2η_ve*( εyzv       + τyzv0/(2η_e) )
         # Plasticity
-        F, λ1, τii1, p1, τxx1, τyy1, τzz1, τxy1, τxz1, τyz1 = PlasticCorrection( λxy[i,j,k], εxxv, εyyv, εzzv, εxy[i,j,k], εxzv, εyzv, τxxv, τyyv, τzzv, τxy[i,j,k], τxzv, τyzv, τxxv0, τyyv0, τzzv0, τxy0[i,j,k], τxzv0, τyzv0, Pv, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
+        F, λ1 = PlasticCorrection( λxy[i,j,k], εxxv, εyyv, εzzv, εxy[i,j,k], εxzv, εyzv, τxxv, τyyv, τzzv, τxy[i,j,k], τxzv, τyzv, τxxv0, τyyv0, τzzv0, τxy0[i,j,k], τxzv0, τyzv0, Pv, Pv1, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, βc, Δt, λrel)
         λxy[i,j,k] = λ1
-        τxy[i,j,k] = τxy1
     end
     # XZ
     if i<=size(τxz,1)-0 && j>1 && j<=size(τxz,2)-1 && k<=size(τxz,3)-0
@@ -569,9 +563,10 @@ end
         # Centroid shear modulus
         G     = 1.0/2.0*( Gv[i,  j-1,  k] + Gv[i,j,k] )
         # Centroid compressibility
-        β     = 1.0/2.0*( βv[i,  j-1,  k] + βv[i,j,k] )
+        βc     = 1.0/2.0*( βv[i,  j-1,  k] + βv[i,j,k] )
         # Trial pressure
         Pv    = 1.0/4.0*( P[i,  j,  k] + P[i+1,j,k] + P[i,j,k+1] + P[i+1,j,k+1] )
+        Pv1   = Pv
         # Visco-elastic rheology
         η_e   = G*Δt
         η_ve  = 1.0 / ( 1.0/η + 1.0/η_e )
@@ -594,9 +589,9 @@ end
         τxz[i,j,k] = 2η_ve*( εxz[i,j,k] + τxz0[i,j,k]/(2η_e) )
         τyzv       = 2η_ve*( εyzv       + τyzv0/(2η_e) )
         # Plasticity
-        F, λ1, τii1, p1, τxx1, τyy1, τzz1, τxy1, τxz1, τyz1 = PlasticCorrection( λxz[i,j,k], εxxv, εyyv, εzzv, εxyv, εxz[i,j,k], εyzv, τxxv, τyyv, τzzv, τxyv, τxz[i,j,k], τyzv, τxxv0, τyyv0, τzzv0, τxyv0, τxz0[i,j,k], τyzv0, Pv, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
+        F, λ1 = PlasticCorrection( λxz[i,j,k], εxxv, εyyv, εzzv, εxyv, εxz[i,j,k], εyzv, τxxv, τyyv, τzzv, τxyv, τxz[i,j,k], τyzv, τxxv0, τyyv0, τzzv0, τxyv0, τxz0[i,j,k], τyzv0, Pv, Pv1, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, βc, Δt, λrel)
         λxz[i,j,k] = λ1
-        τxz[i,j,k] = τxz1
+        # if (i==25 && j==2 && k==66) @printf("Plastic, F_corr  = %2.2e λxz = %2.2e\n", F, λxz[i,j,k]) end
     end
     # YZ
     if i>1 && i<=size(τyz,1)-1 && j<=size(τyz,2)-0 && k<=size(τyz,3)-0
@@ -605,9 +600,10 @@ end
         # Centroid shear modulus
         G    = 1.0/2.0*( Gv[i-1,  j,  k] + Gv[i,j,k] )
         # Centroid compressibility
-        β    = 1.0/2.0*( βv[i-1,  j,  k] + βv[i,j,k] )
+        βc    = 1.0/2.0*( βv[i-1,  j,  k] + βv[i,j,k] )
         # # Trial pressure
         Pv   = 1.0/4.0*( P[i,  j,  k] + P[i,j+1,k] + P[i,j,k+1] + P[i,j+1,k+1] )
+        Pv1  = Pv
         # Visco-elastic rheology
         η_e   = G*Δt
         η_ve  = 1.0 / ( 1.0/η + 1.0/η_e )
@@ -630,21 +626,22 @@ end
         τxzv       = 2η_ve*( εxzv       + τxzv0/(2η_e) )
         τyz[i,j,k] = 2η_ve*( εyz[i,j,k] + τyz0[i,j,k]/(2η_e) )
         # Plasticity
-        F, λ1, τii1, p1, τxx1, τyy1, τzz1, τxy1, τxz1, τyz1 = PlasticCorrection( λyz[i,j,k], εxxv, εyyv, εzzv, εxyv, εxzv, εyz[i,j,k], τxxv, τyyv, τzzv, τxyv, τxzv, τyz[i,j,k], τxxv0, τyyv0, τzzv0, τxyv0, τxzv0, τyz0[i,j,k], Pv, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
+        F, λ1 = PlasticCorrection( λyz[i,j,k], εxxv, εyyv, εzzv, εxyv, εxzv, εyz[i,j,k], τxxv, τyyv, τzzv, τxyv, τxzv, τyz[i,j,k], τxxv0, τyyv0, τzzv0, τxyv0, τxzv0, τyz0[i,j,k], Pv, Pv1, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, βc, Δt, λrel)
         λyz[i,j,k] = λ1
-        τyz[i,j,k] = τyz1
+        # if (i==25 && j==2 && k==66) @printf("Plastic, F_corr  = %2.2e λyz = %2.2e\n", F, λyz[i,j,k]) end
     end
     return nothing
 end
 
-@views function PlasticCorrection( λ, εxx, εyy, εzz, εxy, εxz, εyz, τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, P, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, β, Δt, λrel)
+@views function PlasticCorrection( λ, εxx, εyy, εzz, εxy, εxz, εyz, τxx, τyy, τzz, τxy, τxz, τyz, τxx0, τyy0, τzz0, τxy0, τxz0, τyz0, P, P1, C, cosϕ, sinϕ, sinψ, η_vp, η_ve, η_e, βc, Δt, λrel)
     # Plasticity
     τii = sqrt(0.5*(τxx^2 + τyy^2 + τzz^2) + τxy^2 + τxz^2 + τyz^2)
     F   = τii - C*cosϕ - P*sinϕ
     if F>0
-        λ1    = F / ( η_ve + η_vp + Δt/β*sinϕ*sinψ )
-        λ     = (1.0-λrel)*λ + λrel*λ1
-        P1    = P   + λ/β*Δt*sinψ
+        λ1    = F / ( η_ve + η_vp + 1.0./βc*Δt*sinϕ*sinψ )
+        λ    *= (1.0-λrel)
+        λ    += λrel*λ1
+        P1   += λ/βc*Δt*sinψ
         τii1  = τii - η_ve*λ
         Eii1  = 0.5*(εxx + τxx0/(2η_e) )^2
         Eii1 += 0.5*(εyy + τyy0/(2η_e) )^2
@@ -663,11 +660,10 @@ end
         τii   = sqrt(0.5*(τxx^2 + τyy^2 + τzz^2) + τxy^2 + τxz^2 + τyz^2)
         F     = τii1 - C*cosϕ - P1*sinϕ - λ1*η_vp
     else
-        λ     = 0.0
+        λ     =  0.0
         τii1  = τii
-        P1    = P
     end
-    return F, λ, τii1, P1, τxx, τyy, τzz, τxy, τxz, τyz  
+    return F, λ, τii1    
 end
 
 @time main( 1 )

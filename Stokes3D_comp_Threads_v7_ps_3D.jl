@@ -19,8 +19,9 @@ else
 end
 #-----------
 function main( n )
+show_visu    = 0
 write_out    = 1
-write_nout   = 10
+write_nout   = 5
 restart_from = 000
 #----------- BENCHMARK 
 nt            = 200
@@ -189,7 +190,7 @@ cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 λrel   = .5  
 tol    = 1e-6
-anim   = Animation()
+if show_visu ==1 anim   = Animation() end
 #-----------
 for it=restart_from+1:nt
     #----------- Adaptive Δt
@@ -253,7 +254,8 @@ for it=restart_from+1:nt
     @printf("P   : min = %2.4e --- max = %2.4e\n", minimum(  P[2:end-1,2:end-1,2:end-1])*σc, maximum(  P[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("ρ0  : min = %2.4e --- max = %2.4e\n", minimum( ρ0)*ρc, maximum( ρ0)*ρc)
     @printf("ρ   : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
-    #-----------  
+    #----------- 
+    if show_visu ==1 
     Pin  = P[2:end-1,2:end-1,2:end-1]
     ∇Vin = ∇V[2:end-1,2:end-1,2:end-1]
     # Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
@@ -283,7 +285,8 @@ for it=restart_from+1:nt
     p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
     p   = plot(p1,p2,p3,p4)
     frame(anim)
-    display(p)
+    display(p) 
+    end
     # Breakpoint business
     if write_out==1 && (it==1 || mod(it, write_nout)==0)
         fname = @sprintf("./Breakpoint%05d.h5", it)
@@ -311,7 +314,7 @@ for it=restart_from+1:nt
         end
     end
 end
-gif(anim, "QuartzCoesiteJulia.gif", fps = 6)
+ if show_visu ==1  gif(anim, "QuartzCoesiteJulia.gif", fps = 6) end
 #-----------
 return nothing
 end

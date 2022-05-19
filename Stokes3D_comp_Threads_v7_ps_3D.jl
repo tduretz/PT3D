@@ -25,13 +25,13 @@ function main( n )
 show_visu    = 0
 write_out    = 1
 write_nout   = 5
-restart_from = 000
+restart_from = 0
 #----------- BENCHMARK 
-nt            = 200
+nt            = 300
 Δtr           = 0.125e11/2
 ε_BG          = 0.0e-16
 ∇V_BG         = 1.0e-14
-r             = 2/3*2e-3
+r             = 2e-3
 βr            = 1.0/(17e10)
 Gr            = 9e10
 ρr            = 3300
@@ -105,7 +105,7 @@ if show_visu ==1 anim   = Animation() end
 out_path = @sprintf("%s/out_visu", @__DIR__)
 !ispath(out_path) && mkdir(out_path)
 dim_g  = (ncx, ncy, ncz)
-timev = Float64[]; h5_names = String[]; isave = 1
+timev = Float64[]; h5_names = String[]; #isave = 1
 # saving example -----------------------------------------------------------------------------------------------
 Ft    = @zeros(ncx+0, ncy+0, ncz+0)
 Fs    = @zeros(ncx+0, ncy+0, ncz+0)
@@ -262,6 +262,7 @@ for it=restart_from+1:nt
     end
     P .= P1
     @parallel UpdateDensity( ρ, ρref, βc, P, Pr, dρ, Pt, dPr )
+    @parallel ComputeStressInvariant( εii, εxx, εyy, εzz, εxy, εxz, εyz ) 
     #-----------
     @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
@@ -327,24 +328,30 @@ for it=restart_from+1:nt
             write(file, "dVxdt", Array(dVxdτ))
             write(file, "dVydt", Array(dVydτ))
             write(file, "dVzdt", Array(dVzdτ))
+            ## time series
             write(file, "timev", Array(timev))
             write(file, "time", time)
+            ## extra
+            write(file, "lam", Array(λc))
+            write(file, "Eii", Array(εii))
+            write(file, "Tii", Array(τii))
+            write(file, "div", Array(∇V))
         end
         # Interpolate some data
         # VxC = 0.5*(Vx[2:end,:,:]+Vx[1:end-1,:,:])
         # VyC = 0.5*(Vy[:,2:end,:]+Vy[:,1:end-1,:])
         # VzC = 0.5*(Vz[:,:,2:end]+Vz[:,:,1:end-1])
-        @parallel ComputeStressInvariant( εii, εxx, εyy, εzz, εxy, εxz, εyz ) 
-        # XML save from Ludo and Ivan ==> 🚀
-        out_name = @sprintf("PT3DOutput%05d", isave) #it
-        out_h5 = joinpath(out_path, out_name)*".h5"
-        I = CartesianIndices(( 1:ncx, 1:ncy, 1:ncz ))
-        fields = Dict("ηc"=>Array(ηc[2:end-1,2:end-1,2:end-1].*μc), "ρ"=>Array(ρ.*ρc), "τii"=>Array(τii.*σc), "P"=>Array(P[2:end-1,2:end-1,2:end-1].*σc), "εii"=>Array(εii.*εc), "λc"=>Array(λc.*εc), "∇V"=>Array(∇V[2:end-1,2:end-1,2:end-1].*εc))
-        push!(timev, time); push!(h5_names, out_name*".h5")
-        write_h5(out_h5, fields, dim_g, I)
-        write_xdmf( joinpath(out_path,out_name)*".xdmf3", h5_names,fields, (xc[2],yc[2],zc[2]), (Δx,Δy,Δz), dim_g, timev.*tc )
-        isave += 1
-        # @printf("Writing file %s\n", fname)
+        # @parallel ComputeStressInvariant( εii, εxx, εyy, εzz, εxy, εxz, εyz ) 
+        # # XML save from Ludo and Ivan ==> 🚀
+        # out_name = @sprintf("PT3DOutput%05d", it) #it
+        # out_h5 = joinpath(out_path, out_name)*".h5"
+        # I = CartesianIndices(( 1:ncx, 1:ncy, 1:ncz ))
+        # fields = Dict("ηc"=>Array(ηc[2:end-1,2:end-1,2:end-1].*μc), "ρ"=>Array(ρ.*ρc), "τii"=>Array(τii.*σc), "P"=>Array(P[2:end-1,2:end-1,2:end-1].*σc), "εii"=>Array(εii.*εc), "λc"=>Array(λc.*εc), "∇V"=>Array(∇V[2:end-1,2:end-1,2:end-1].*εc))
+        # push!(timev, time); push!(h5_names, out_name*".h5")
+        # write_h5(out_h5, fields, dim_g, I)
+        # write_xdmf( joinpath(out_path,out_name)*".xdmf3", h5_names,fields, (xc[2],yc[2],zc[2]), (Δx,Δy,Δz), dim_g, timev.*tc )
+        # #isave += 1
+        # # @printf("Writing file %s\n", fname)
     end
 end
 if show_visu ==1  gif(anim, "QuartzCoesiteJulia.gif", fps = 6) end
@@ -353,7 +360,7 @@ return nothing
 end
 
 @parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, βv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, βc, βr, Gr, ρref, ρr )
-    ri, ro, ar, ari = 0.25*r, r, 1.6, 1.2
+    ri1, ri2, ri3, ro, ar, ari = 0.15*r, 0.10*r, 0.20*r, r, 1.1, 1.4
     # Vertices
     if i<=size(Vx,1) Vx[i,j,k] = (-ε_BG + 1.0/3.0*∇V_BG)*xv[i] end
     if j<=size(Vy,2) Vy[i,j,k] = (        1.0/3.0*∇V_BG)*yv[j] end
@@ -365,17 +372,29 @@ end
         if (xv[i]^2/(ar*ro)^2 + yv[j]^2/ro^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr*100     end 
         if (xv[i]^2/(ar*ro)^2 + yv[j]^2/ro^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.4166  end 
         if (xv[i]^2/(ar*ro)^2 + yv[j]^2/ro^2 + zv[k]^2/ro^2) < 1.0  Gv[i,j,k] = Gr*1.5*(1.0 + 0.2*(0.5-rand()))     end 
-        if ((xv[i]-0.12)^2/(ari*ri)^2 + (yv[j]-0.02)^2/ri^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
-        if ((xv[i]-0.12)^2/(ari*ri)^2 + (yv[j]-0.02)^2/ri^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
+        if ((xv[i]-0.12)^2/(ari*ri1)^2 + (yv[j]-0.02)^2/ri1^2 + (zv[k]-0.05)^2/ri1^2) < 1.0  βv[i,j,k] = βr end  
+        if ((xv[i]-0.12)^2/(ari*ri1)^2 + (yv[j]-0.02)^2/ri1^2 + (zv[k]-0.05)^2/ri1^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
+        if ((xv[i]+0.16)^2/(ari*ri2)^2 + (yv[j]+0.05)^2/ri2^2 + (zv[k]+0.1)^2/ri2^2) < 1.0  βv[i,j,k] = βr end  
+        if ((xv[i]+0.16)^2/(ari*ri2)^2 + (yv[j]+0.05)^2/ri2^2 + (zv[k]+0.1)^2/ri2^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
+        if ((xv[i]+0.13)^2/(ari*ri3)^2 + (yv[j]+0.15)^2/ri3^2 + (zv[k]-0.05)^2/ri3^2) < 1.0  βv[i,j,k] = βr end  
+        if ((xv[i]+0.13)^2/(ari*ri3)^2 + (yv[j]+0.15)^2/ri3^2 + (zv[k]-0.05)^2/ri3^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
     end
     # Centroids
     if i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)
         ρref[i,j,k] = 0.8788*ρr
-        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ρref[i,j,k] = ρr    end
-        if ((xce[i+1]-0.12)^2/(ari*ri)^2 + (yce[j+1]-0.02)^2/ri^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  
+        if (xce[i+1]^2/(ar*ro)^2 + yce[j+1]^2/ro^2 + zce[k+1]^2/ro^2) < 1.0  ρref[i,j,k] = ρr    end
+        if ((xce[i+1]-0.12)^2/(ari*ri1)^2 + (yce[j+1]-0.02)^2/ri1^2 + (zce[k+1]-0.05)^2/ri1^2) < 1.0  
             ρref[i,j,k] = 0.8788*ρr
             dρ[i,j,k]   = dρinc  
-        end  
+        end 
+        if ((xce[i+1]+0.12)^2/(ari*ri2)^2 + (yce[j+1]+0.05)^2/ri2^2 + (zce[k+1]+0.07)^2/ri2^2) < 1.0  
+            ρref[i,j,k] = 0.8788*ρr
+            dρ[i,j,k]   = dρinc  
+        end 
+        if ((xce[i+1]+0.13)^2/(ari*ri3)^2 + (yce[j+1]+0.15)^2/ri3^2 + (zce[k+1]-0.05)^2/ri3^2) < 1.0  
+            ρref[i,j,k] = 0.8788*ρr
+            dρ[i,j,k]   = dρinc  
+        end
     end
     return nothing
 end
@@ -715,4 +734,4 @@ end
     return nothing
 end
 
-@time main(4)
+@time main(5)

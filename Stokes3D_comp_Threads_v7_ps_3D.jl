@@ -339,7 +339,7 @@ for it=restart_from+1:nt
         out_name = @sprintf("PT3DOutput%05d", isave) #it
         out_h5 = joinpath(out_path, out_name)*".h5"
         I = CartesianIndices(( 1:ncx, 1:ncy, 1:ncz ))
-        fields = Dict("ηc"=>Array(ηc[2:end-1,2:end-1,2:end-1].*μc), "ρ"=>Array(ρ.*ρc), "τii"=>Array(τii.*σc), "P"=>Array(P[2:end-1,2:end-1,2:end-1].*σc), "εii"=>Array(εii.*εc), "λc"=>Array(λc.*εc), "∇V"=>Array(∇V.*εc))
+        fields = Dict("ηc"=>Array(ηc[2:end-1,2:end-1,2:end-1].*μc), "ρ"=>Array(ρ.*ρc), "τii"=>Array(τii.*σc), "P"=>Array(P[2:end-1,2:end-1,2:end-1].*σc), "εii"=>Array(εii.*εc), "λc"=>Array(λc.*εc), "∇V"=>Array(∇V[2:end-1,2:end-1,2:end-1].*εc))
         push!(timev, time); push!(h5_names, out_name*".h5")
         write_h5(out_h5, fields, dim_g, I)
         write_xdmf( joinpath(out_path,out_name)*".xdmf3", h5_names,fields, (xc[2],yc[2],zc[2]), (Δx,Δy,Δz), dim_g, timev.*tc )

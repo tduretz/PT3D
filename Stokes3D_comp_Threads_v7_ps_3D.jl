@@ -1,15 +1,15 @@
 # V-E-P model
 # rheology on centers ONLY
 # viscosity with extended stencil (useful?)
-# dt for 2D
-using  Printf, Plots, HDF5
+# dt for 3D
+using Printf, HDF5, LightXML
+# using Plots
 import Statistics: mean
-import LinearAlgebra: norm
 import LinearAlgebra: norm
 import SpecialFunctions: erfc
 #-----------
-const USE_GPU = false
-const GPU_ID  = 7
+const USE_GPU = true
+const GPU_ID  = 1
 using ParallelStencil
 using ParallelStencil.FiniteDifferences3D
 @static if USE_GPU
@@ -17,22 +17,26 @@ using ParallelStencil.FiniteDifferences3D
 else
     @init_parallel_stencil(Threads, Float64, 3);
 end
+
+include(joinpath(@__DIR__,"data_io.jl"))
+
 #-----------
 function main( n )
+show_visu    = 0
 write_out    = 1
-write_nout   = 10
-restart_from = 000
+write_nout   = 5
+restart_from = 0
 #----------- BENCHMARK 
-nt            = 200
+nt            = 300
 Δtr           = 0.125e11/2
 ε_BG          = 0.0e-16
 ∇V_BG         = 1.0e-14
-r             = 2/3*2e-3
+r             = 2e-3
 βr            = 1.0/(17e10)
 Gr            = 9e10
 ρr            = 3300
 ηr            = 1e22
-Lx,  Ly,  Lz  =  5e-3,  5e-3,  5e-3 
+Lx,  Ly,  Lz  = 5e-3,  5e-3,  5e-3 
 ncx, ncy, ncz = n*32-2, n*32-2, n*32-2
 BCtype        = :PureShear_xz
 Pini          = 3.45e9
@@ -45,13 +49,14 @@ Ptens         = -2e7
 Pmin   = 1e8
 Pmax   = Pini 
 P_1d   = LinRange( Pmin, Pmax, 200 )
-ρr_1d  = 0.8788ρr .- dρinc*1//2 .* erfc.( (P_1d.-Pt)./dPr ) 
+ρr_1d  = 0.8788ρr .- dρinc*1.0/2.0 .* erfc.( (P_1d.-Pt)./dPr ) 
 ρ_1d   = ρr_1d .*exp.(βr.*(P_1d.-Pr))
 ϕ      = 35.0
 ψ      = 5.0
 C      = 1e7
 η_vp   = 1e18
 τy_1d  = C.*cosd(ϕ) .+ P_1d.*sind(ϕ)
+time   = 0.0
 #-----------
 dρdP     = 0.5641895835477563*dρinc.*exp.( .-((P_1d.-Pt)./dPr).^2 ) ./ dPr
 max_dρdP = maximum(dρdP)
@@ -92,7 +97,16 @@ zv  = LinRange(-Lz/2, Lz/2, ncz+1)
 xce = LinRange(-Lx/2-Δx/2, Lx/2+Δx/2, ncx+2)
 yce = LinRange(-Ly/2-Δy/2, Ly/2+Δy/2, ncy+2)
 zce = LinRange(-Lz/2-Δz/2, Lz/2+Δz/2, ncz+2)
-#-----------
+xc  = LinRange(-Lx/2+Δx/2, Lx/2-Δx/2, ncx+2)
+yc  = LinRange(-Ly/2+Δy/2, Ly/2-Δy/2, ncy+2)
+zc  = LinRange(-Lz/2+Δz/2, Lz/2-Δz/2, ncz+2)
+# saving example -----------------------------------------------------------------------------------------------
+if show_visu ==1 anim   = Animation() end
+out_path = @sprintf("%s/out_visu", @__DIR__)
+!ispath(out_path) && mkdir(out_path)
+dim_g  = (ncx, ncy, ncz)
+timev = Float64[]; h5_names = String[]; #isave = 1
+# saving example -----------------------------------------------------------------------------------------------
 Ft    = @zeros(ncx+0, ncy+0, ncz+0)
 Fs    = @zeros(ncx+0, ncy+0, ncz+0)
 Y     = @zeros(ncx+0, ncy+0, ncz+0)
@@ -113,6 +127,7 @@ dρ    = @zeros(ncx+0, ncy+0, ncz+0)
 τxz0  = @zeros(ncx+1, ncy+2, ncz+1)
 τyz0  = @zeros(ncx+2, ncy+1, ncz+1)
 τii   = @zeros(ncx+0, ncy+0, ncz+0)
+εii   = @zeros(ncx+0, ncy+0, ncz+0)
 ηc    = @zeros(ncx+2, ncy+2, ncz+2)
 ηv    = @zeros(ncx+1, ncy+1, ncz+1)
 Gc    = @zeros(ncx+0, ncy+0, ncz+0)
@@ -158,25 +173,27 @@ if restart_from == 0
     fname = @sprintf("./Breakpoint%05d.h5", restart_from)
     @printf("Reading file %s\n", fname)
     h5open(fname, "r") do file
-        dρ    = read(file, "drho") 
-        ρref  = read(file, "rho_ref")
-        ηv    = read(file, "ev") 
-        Gv    = read(file, "Gv") 
-        βv    = read(file, "Bv") 
-        P     = read(file, "P") 
-        Vx    = read(file, "Vx") 
-        Vy    = read(file, "Vy") 
-        Vz    = read(file, "Vz")
-        ρ     = read(file, "rho")
-        τxx   = read(file, "Txx")
-        τyy   = read(file, "Tyy")
-        τzz   = read(file, "Tzz")
-        τxy   = read(file, "Txy")
-        τxz   = read(file, "Txz")
-        τyz   = read(file, "Tyz")
-        dVxdτ = read(file, "dVxdt")
-        dVydτ = read(file, "dVydt")
-        dVzdτ = read(file, "dVzdt")
+        dρ    = Data.Array(read(file, "drho"))
+        ρref  = Data.Array(read(file, "rho_ref"))
+        ηv    = Data.Array(read(file, "ev"))
+        Gv    = Data.Array(read(file, "Gv"))
+        βv    = Data.Array(read(file, "Bv"))
+        P     = Data.Array(read(file, "P"))
+        Vx    = Data.Array(read(file, "Vx"))
+        Vy    = Data.Array(read(file, "Vy"))
+        Vz    = Data.Array(read(file, "Vz"))
+        ρ     = Data.Array(read(file, "rho"))
+        τxx   = Data.Array(read(file, "Txx"))
+        τyy   = Data.Array(read(file, "Tyy"))
+        τzz   = Data.Array(read(file, "Tzz"))
+        τxy   = Data.Array(read(file, "Txy"))
+        τxz   = Data.Array(read(file, "Txz"))
+        τyz   = Data.Array(read(file, "Tyz"))
+        dVxdτ = Data.Array(read(file, "dVxdt"))
+        dVydτ = Data.Array(read(file, "dVydt"))
+        dVzdτ = Data.Array(read(file, "dVzdt"))
+        timev = Data.Array(read(file, "timev"))
+        time  = read(file, "time")
     end
 end
 #-----------
@@ -189,18 +206,18 @@ cfl    = 0.62
 ρnum   = cfl*Reopt/max(ncx,ncy,ncz)
 λrel   = .5  
 tol    = 1e-6
-anim   = Animation()
 #-----------
 for it=restart_from+1:nt
     #----------- Adaptive Δt
-    dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
+    # dρdP   = 0.5641895835477563*dρinc.*exp.( .-((P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2].-Pt)./dPr).^2 ) ./ dPr 
     Δt     = Δtr#*(1.0 .-  dρdP ./ max_dρdP./1.1)
+    time  += Δt
     #----------- Adaptive PT parameters
     η_ve   = 1.0/(1.0/maximum(ηv) + 1.0/(Gr*Δt)) 
     Δτ     = ρnum*min(Δx, Δy, Δz).^2 / η_ve /6.1  /1.1
     ΚΔτ    = min(η_ve, Δt/βr) * min(Δx, Δz) / sqrt(Lx^2+Ly^2+Lz^2) * cfl*1.0 /1.1
     @printf("###################################################################################\n")
-    @printf("#### Time step %04d --- Δt = %2.2e --- tmaxwell = %2.2e --- P = %2.2e ####\n", it, Δt*tc, minimum(ηv./Gv)*tc, P[(ncx+2)÷2,(ncy+2)÷2,(ncz+2)÷2]*σc/1e9)
+    @printf("#### Time step %04d --- Δt = %2.2e  ####\n", it, Δt*tc)
     @printf("###################################################################################\n")
     P0   .= P
     ρ0   .= ρ
@@ -245,6 +262,7 @@ for it=restart_from+1:nt
     end
     P .= P1
     @parallel UpdateDensity( ρ, ρref, βc, P, Pr, dρ, Pt, dPr )
+    @parallel ComputeStressInvariant( εii, εxx, εyy, εzz, εxy, εxz, εyz ) 
     #-----------
     @printf("τxx : min = %2.4e --- max = %2.4e\n", minimum(τxx[2:end-1,2:end-1,2:end-1])*σc, maximum(τxx[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("τyy : min = %2.4e --- max = %2.4e\n", minimum(τyy[2:end-1,2:end-1,2:end-1])*σc, maximum(τyy[2:end-1,2:end-1,2:end-1])*σc/1e9)
@@ -253,100 +271,136 @@ for it=restart_from+1:nt
     @printf("P   : min = %2.4e --- max = %2.4e\n", minimum(  P[2:end-1,2:end-1,2:end-1])*σc, maximum(  P[2:end-1,2:end-1,2:end-1])*σc/1e9)
     @printf("ρ0  : min = %2.4e --- max = %2.4e\n", minimum( ρ0)*ρc, maximum( ρ0)*ρc)
     @printf("ρ   : min = %2.4e --- max = %2.4e\n", minimum(  ρ)*ρc, maximum(  ρ)*ρc)
-    #-----------  
-    Pin  = P[2:end-1,2:end-1,2:end-1]
-    ∇Vin = ∇V[2:end-1,2:end-1,2:end-1]
-    # Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
-    # Ft .= Ptens  .- Pin
-    # @printf("max Ft = %2.2e\n", maximum(Ft))
-    # Y .= 0
-    # Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.>Ft] .= 1
-    # Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.<Ft] .= 2
-    # Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
-    # Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
-    # p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, ∇Vin[:, (size(∇Vin,2))÷2, :]'.*εc, title="∇V [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, ρ[:, (size(ρ,2))÷2, :]'.*ρc, title="ρ [kg/m³]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, log10.(ηv[:, (size(ηv,2))÷2, :].*μc)', title="log10 ηv [Pa.s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, Gv[:, (size(Gv,2))÷2, :]'.*σc, title="Gv [Pa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+    #----------- 
+    if show_visu ==1 
+        Pin  = P[2:end-1,2:end-1,2:end-1]
+        ∇Vin = ∇V[2:end-1,2:end-1,2:end-1]
+        # Fs .= τii .- C.*cosd(ϕ) .- Pin.*sind(ϕ)
+        # Ft .= Ptens  .- Pin
+        # @printf("max Ft = %2.2e\n", maximum(Ft))
+        # Y .= 0
+        # Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.>Ft] .= 1
+        # Y[Fs.>0.0 .&& Ft.>0.0 .&& Fs.<Ft] .= 2
+        # Y[Fs.>0.0 .&& Ft.<0.0           ] .= 2
+        # Y[Ft.>0.0 .&& Fs.<0.0           ] .= 1
+        # p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, ∇Vin[:, (size(∇Vin,2))÷2, :]'.*εc, title="∇V [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        p1  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Pin[:, (size(Pin,2))÷2, :]'.*σc./1e9, title="P [GPa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, ρ[:, (size(ρ,2))÷2, :]'.*ρc, title="ρ [kg/m³]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, τii[:, (size(τii,2))÷2, :]'.*σc./1e9, title="τii [GPa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+        # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, log10.(ηv[:, (size(ηv,2))÷2, :].*μc)', title="log10 ηv [Pa.s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        # p1  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, Gv[:, (size(Gv,2))÷2, :]'.*σc, title="Gv [Pa]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
 
-    # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
-    p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, λc[:, (size(λc,2))÷2, :]'.*(1.0/tc), title="λ [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, λxz[:, (size(λxz,2))÷2, :]'.*(1.0/tc), title="λxz [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
-    # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
-    p2  = plot(P_1d./1e9, ρ_1d,legend=false)
-    p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
-    p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
-    p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
-    p   = plot(p1,p2,p3,p4)
-    frame(anim)
-    display(p)
+        # p3  = heatmap(xce[:].*Lc*1e2, zce[:].*Lc*1e2, τxzc[:, (size(τxzc,2))÷2, :]'.*σc./1e9, title="τxz [GPa]", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+        # p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, Y[:, (size(Y,2))÷2, :]', title="Yield mode", aspect_ratio=1, xlims=(-Lx/2, Lx/2), c=:jet1 )
+        p3  = heatmap(xce[2:end-1].*Lc*1e2, zce[2:end-1].*Lc*1e2, λc[:, (size(λc,2))÷2, :]'.*(1.0/tc), title="λ [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        # p3  = heatmap(xv.*Lc*1e2, zv.*Lc*1e2, λxz[:, (size(λxz,2))÷2, :]'.*(1.0/tc), title="λxz [1/s]", aspect_ratio=1, xlims=(-Lx/2*Lc*1e2, Lx/2*Lc*1e2), c=:jet1 )
+        # p1  = heatmap(ηv[:, (size(ηv,2))÷2, :]'.*μc)
+        p2  = plot(P_1d./1e9, ρ_1d,legend=false)
+        p2  = scatter!(Pin[:].*σc./1e9, ρ[:].*ρc, xlabel="P [GPa]", ylabel="ρ [kg / m³]")
+        p4  = plot(P_1d./1e9, τy_1d./1e9,legend=false)
+        p4  = scatter!(Pin[:].*σc./1e9, τii[:].*σc./1e9, xlabel="P [GPa]", ylabel="τii [GPa]")
+        p   = plot(p1,p2,p3,p4)
+        frame(anim)
+        display(p) 
+    end
     # Breakpoint business
     if write_out==1 && (it==1 || mod(it, write_nout)==0)
-        fname = @sprintf("./Breakpoint%05d.h5", it)
+        fname = @sprintf("%s/Breakpoint%05d.h5", @__DIR__, it)
         @printf("Writing file %s\n", fname)
         h5open(fname, "w") do file
-            write(file, "drho", dρ) 
-            write(file, "rho_ref", ρref)
-            write(file, "ev", ηv) 
-            write(file, "Gv", Gv) 
-            write(file, "Bv", βv) 
-            write(file, "P", P) 
-            write(file, "Vx", Vx) 
-            write(file, "Vy", Vy) 
-            write(file, "Vz", Vz)
-            write(file, "rho", ρ)
-            write(file, "Txx", τxx)
-            write(file, "Tyy", τyy)
-            write(file, "Tzz", τzz)
-            write(file, "Txy", τxy)
-            write(file, "Txz", τxz)
-            write(file, "Tyz", τyz)
-            write(file, "dVxdt", dVxdτ)
-            write(file, "dVydt", dVydτ)
-            write(file, "dVzdt", dVzdτ)
+            write(file, "drho", Array(dρ)) 
+            write(file, "rho_ref", Array(ρref))
+            write(file, "ev", Array(ηv)) 
+            write(file, "Gv", Array(Gv)) 
+            write(file, "Bv", Array(βv)) 
+            write(file, "P", Array(P)) 
+            write(file, "Vx", Array(Vx)) 
+            write(file, "Vy", Array(Vy)) 
+            write(file, "Vz", Array(Vz))
+            write(file, "rho", Array(ρ))
+            write(file, "Txx", Array(τxx))
+            write(file, "Tyy", Array(τyy))
+            write(file, "Tzz", Array(τzz))
+            write(file, "Txy", Array(τxy))
+            write(file, "Txz", Array(τxz))
+            write(file, "Tyz", Array(τyz))
+            write(file, "dVxdt", Array(dVxdτ))
+            write(file, "dVydt", Array(dVydτ))
+            write(file, "dVzdt", Array(dVzdτ))
+            ## time series
+            write(file, "timev", Array(timev))
+            write(file, "time", time)
+            ## extra
+            write(file, "lam", Array(λc))
+            write(file, "Eii", Array(εii))
+            write(file, "Tii", Array(τii))
+            write(file, "div", Array(∇V))
         end
+        # Interpolate some data
+        # VxC = 0.5*(Vx[2:end,:,:]+Vx[1:end-1,:,:])
+        # VyC = 0.5*(Vy[:,2:end,:]+Vy[:,1:end-1,:])
+        # VzC = 0.5*(Vz[:,:,2:end]+Vz[:,:,1:end-1])
+        # @parallel ComputeStressInvariant( εii, εxx, εyy, εzz, εxy, εxz, εyz ) 
+        # # XML save from Ludo and Ivan ==> 🚀
+        # out_name = @sprintf("PT3DOutput%05d", it) #it
+        # out_h5 = joinpath(out_path, out_name)*".h5"
+        # I = CartesianIndices(( 1:ncx, 1:ncy, 1:ncz ))
+        # fields = Dict("ηc"=>Array(ηc[2:end-1,2:end-1,2:end-1].*μc), "ρ"=>Array(ρ.*ρc), "τii"=>Array(τii.*σc), "P"=>Array(P[2:end-1,2:end-1,2:end-1].*σc), "εii"=>Array(εii.*εc), "λc"=>Array(λc.*εc), "∇V"=>Array(∇V[2:end-1,2:end-1,2:end-1].*εc))
+        # push!(timev, time); push!(h5_names, out_name*".h5")
+        # write_h5(out_h5, fields, dim_g, I)
+        # write_xdmf( joinpath(out_path,out_name)*".xdmf3", h5_names,fields, (xc[2],yc[2],zc[2]), (Δx,Δy,Δz), dim_g, timev.*tc )
+        # #isave += 1
+        # # @printf("Writing file %s\n", fname)
     end
 end
-gif(anim, "QuartzCoesiteJulia.gif", fps = 6)
+if show_visu ==1  gif(anim, "QuartzCoesiteJulia.gif", fps = 6) end
 #-----------
 return nothing
 end
 
 @parallel_indices (i,j,k) function InitialCondition( Vx, Vy, Vz, ηv, Gv, βv, ε_BG, ∇V_BG, xv, yv, zv, xce, yce, zce, r, ηr, dρ, dρinc, βc, βr, Gr, ρref, ρr )
-    # ri, ro, ar, ari = 0.25*r, r, 1.0, 1.0
-    ri, ro, ar, ari = 0.25r, r, 1.6, 1.3
+    ri1, ri2, ri3, ro, ar, ari = 0.15*r, 0.10*r, 0.20*r, r, 1.1, 1.4
     # Vertices
-    if i<=size(Vx,1) Vx[i,j,k] = (-ε_BG + 1//3*∇V_BG)*xv[i] end
-    if j<=size(Vy,2) Vy[i,j,k] = (        1//3*∇V_BG)*yv[j] end
-    if k<=size(Vz,3) Vz[i,j,k] = ( ε_BG + 1//3*∇V_BG)*zv[k] end
+    if i<=size(Vx,1) Vx[i,j,k] = (-ε_BG + 1.0/3.0*∇V_BG)*xv[i] end
+    if j<=size(Vy,2) Vy[i,j,k] = (        1.0/3.0*∇V_BG)*yv[j] end
+    if k<=size(Vz,3) Vz[i,j,k] = ( ε_BG + 1.0/3.0*∇V_BG)*zv[k] end
     if i<=size(ηv,1) && j<=size(ηv,2) && k<=size(ηv,3) 
         Gv[i,j,k] = Gr
         βv[i,j,k] = βr
         ηv[i,j,k] = ηr 
-        if (xv[i]^2/(ar*ro)^2 + yv[k]^2/ro^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr*100     end 
-        if (xv[i]^2/(ar*ro)^2 + yv[k]^2/ro^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.4166  end 
-        if (xv[i]^2/(ar*ro)^2 + yv[k]^2/ro^2 + zv[k]^2/ro^2) < 1.0  Gv[i,j,k] = Gr*1.5*(1.0 + 0.2*(0.5-rand()))     end 
-        if ((xv[i]-0.12)^2/(ari*ri)^2 + (yv[k]-0.02)^2/ri^2 + (zv[k]-0.05)^2/ri^2) < 1.0  βv[i,j,k] = βr end  
-        if ((xv[i]-0.12)^2/(ari*ri)^2 + (yv[k]-0.02)^2/ri^2 + (zv[k]-0.05)^2/ri^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
+        if (xv[i]^2/(ar*ro)^2 + yv[j]^2/ro^2 + zv[k]^2/ro^2) < 1.0  ηv[i,j,k] = ηr*100     end 
+        if (xv[i]^2/(ar*ro)^2 + yv[j]^2/ro^2 + zv[k]^2/ro^2) < 1.0  βv[i,j,k] = βr*1.4166  end 
+        if (xv[i]^2/(ar*ro)^2 + yv[j]^2/ro^2 + zv[k]^2/ro^2) < 1.0  Gv[i,j,k] = Gr*1.5*(1.0 + 0.2*(0.5-rand()))     end 
+        if ((xv[i]-0.12)^2/(ari*ri1)^2 + (yv[j]-0.02)^2/ri1^2 + (zv[k]-0.05)^2/ri1^2) < 1.0  βv[i,j,k] = βr end  
+        if ((xv[i]-0.12)^2/(ari*ri1)^2 + (yv[j]-0.02)^2/ri1^2 + (zv[k]-0.05)^2/ri1^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
+        if ((xv[i]+0.16)^2/(ari*ri2)^2 + (yv[j]+0.05)^2/ri2^2 + (zv[k]+0.1)^2/ri2^2) < 1.0  βv[i,j,k] = βr end  
+        if ((xv[i]+0.16)^2/(ari*ri2)^2 + (yv[j]+0.05)^2/ri2^2 + (zv[k]+0.1)^2/ri2^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
+        if ((xv[i]+0.13)^2/(ari*ri3)^2 + (yv[j]+0.15)^2/ri3^2 + (zv[k]-0.05)^2/ri3^2) < 1.0  βv[i,j,k] = βr end  
+        if ((xv[i]+0.13)^2/(ari*ri3)^2 + (yv[j]+0.15)^2/ri3^2 + (zv[k]-0.05)^2/ri3^2) < 1.0  ηv[i,j,k] = ηr/10.0 end  
     end
     # Centroids
     if i<=size(dρ,1) && j<=size(dρ,2) && k<=size(dρ,3)
-        ρref[i,j,k] = 0.8788ρr
-        if (xv[i]^2/(ar*ro)^2 + zv[k]^2/ro^2) < 1.0  ρref[i,j,k] = ρr    end
-        if ((xce[i+1]-0.12)^2/(ari*ri)^2 + (yce[k+1]-0.02)^2/ri^2 + (zce[k+1]-0.05)^2/ri^2) < 1.0  
-            ρref[i,j,k] = 0.8788ρr
+        ρref[i,j,k] = 0.8788*ρr
+        if (xce[i+1]^2/(ar*ro)^2 + yce[j+1]^2/ro^2 + zce[k+1]^2/ro^2) < 1.0  ρref[i,j,k] = ρr    end
+        if ((xce[i+1]-0.12)^2/(ari*ri1)^2 + (yce[j+1]-0.02)^2/ri1^2 + (zce[k+1]-0.05)^2/ri1^2) < 1.0  
+            ρref[i,j,k] = 0.8788*ρr
             dρ[i,j,k]   = dρinc  
-        end  
+        end 
+        if ((xce[i+1]+0.12)^2/(ari*ri2)^2 + (yce[j+1]+0.05)^2/ri2^2 + (zce[k+1]+0.07)^2/ri2^2) < 1.0  
+            ρref[i,j,k] = 0.8788*ρr
+            dρ[i,j,k]   = dρinc  
+        end 
+        if ((xce[i+1]+0.13)^2/(ari*ri3)^2 + (yce[j+1]+0.15)^2/ri3^2 + (zce[k+1]-0.05)^2/ri3^2) < 1.0  
+            ρref[i,j,k] = 0.8788*ρr
+            dρ[i,j,k]   = dρinc  
+        end
     end
     return nothing
 end
 
 @parallel_indices (i,j,k) function UpdateDensity(ρ, ρref, βc, P, Pr, dρ, Pt, dPr)
-    if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρref1    = ρref[i,j,k] - dρ[i,j,k] * 1//2 * erfc( (P[i+1,j+1,k+1]-Pt)/dPr )  end
+    if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρref1    = ρref[i,j,k] - dρ[i,j,k] * 1.0/2.0 * erfc( (P[i+1,j+1,k+1]-Pt)/dPr )  end
     if i<=size(ρ, 1) && j<=size(ρ, 2) && k<=size(ρ, 3) ρ[i,j,k] = ρref1 * exp( βc[i,j,k]*(P[i+1,j+1,k+1] - Pr) ) end
     return nothing
 end
@@ -403,24 +457,24 @@ end
         dVyΔy      = (Vy[i+1,j+1,k+1] - Vy[i+1,j,k+1]) / Δy
         dVzΔz      = (Vz[i+1,j+1,k+1] - Vz[i+1,j+1,k]) / Δz
         ∇V[i+1,j+1,k+1]  = dVxΔx + dVyΔy + dVzΔz
-        εxx[i+1,j+1,k+1] = dVxΔx - 1//3 * ∇V[i+1,j+1,k+1]
-        εyy[i+1,j+1,k+1] = dVyΔy - 1//3 * ∇V[i+1,j+1,k+1]
-        εzz[i+1,j+1,k+1] = dVzΔz - 1//3 * ∇V[i+1,j+1,k+1]
+        εxx[i+1,j+1,k+1] = dVxΔx - 1.0/3.0 * ∇V[i+1,j+1,k+1]
+        εyy[i+1,j+1,k+1] = dVyΔy - 1.0/3.0 * ∇V[i+1,j+1,k+1]
+        εzz[i+1,j+1,k+1] = dVzΔz - 1.0/3.0 * ∇V[i+1,j+1,k+1]
     end
     if i<=size(εxy,1) && j<=size(εxy,2) && k<=size(εxy,3)-2
         dVxΔy      = (Vx[i,j+1,k+1] - Vx[i,j,k+1]) / Δy 
         dVyΔx      = (Vy[i+1,j,k+1] - Vy[i,j,k+1]) / Δx 
-        εxy[i,j,k+1] = 1//2*(dVxΔy + dVyΔx)
+        εxy[i,j,k+1] =  1.0/2.0*(dVxΔy + dVyΔx)
     end
     if i<=size(εxz,1) && j<=size(εxz,2)-2 && k<=size(εxz,3)
         dVxΔz      = (Vx[i  ,j+1,k+1] - Vx[i,j+1,k]) / Δz                     
         dVzΔx      = (Vz[i+1,j+1,k  ] - Vz[i,j+1,k]) / Δx 
-        εxz[i,j+1,k] = 1//2*(dVxΔz + dVzΔx)
+        εxz[i,j+1,k] = 1.0/2.0*(dVxΔz + dVzΔx)
     end
     if i<=size(εyz,1)-2 && j<=size(εyz,2) && k<=size(εyz,3)
         dVyΔz      = (Vy[i+1,j,k+1] - Vy[i+1,j,k]) / Δz 
         dVzΔy      = (Vz[i+1,j+1,k] - Vz[i+1,j,k]) / Δy 
-        εyz[i+1,j,k] = 1//2*(dVyΔz + dVzΔy)
+        εyz[i+1,j,k] = 1.0/2.0*(dVyΔz + dVzΔy)
     end
     return nothing
 end
@@ -667,4 +721,17 @@ end
     return F, λ, τii1, P1, τxx, τyy, τzz, τxy, τxz, τyz  
 end
 
-@time main( 2 )
+@parallel_indices (i,j,k) function ComputeStressInvariant( τII, τxx, τyy, τzz, τxy, τxz, τyz )
+    if i<=size(τII,1) && j<=size(τII,2) && k<=size(τII,3)
+        Jii      = 0.5*τxx[i+1,j+1,k+1]^2
+        Jii     += 0.5*τyy[i+1,j+1,k+1]^2
+        Jii     += 0.5*τzz[i+1,j+1,k+1]^2
+        Jii     += (0.25*(τxy[i,j,k] + τxy[i+1,j,k] + τxy[i,j+1,k] + τxy[i+1,j+1,k]) )^2
+        Jii     += (0.25*(τxz[i,j,k] + τxz[i+1,j,k] + τxz[i,j,k+1] + τxz[i+1,j,k+1]) )^2
+        Jii     += (0.25*(τyz[i,j,k] + τyz[i,j+1,k] + τyz[i,j,k+1] + τyz[i,j+1,k+1]) )^2
+        τII[i,j,k] = sqrt(Jii)
+    end
+    return nothing
+end
+
+@time main(5)

@@ -3,6 +3,7 @@
 # viscosity with extended stencil (useful?)
 # dt for 2D
 # principal stresses
+# AMDGPU version - so far, sucks!
 using  Printf, Plots, HDF5
 import Statistics: mean
 import LinearAlgebra: norm
